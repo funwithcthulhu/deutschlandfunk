@@ -204,10 +204,11 @@ impl AppState {
                 if audio_only && !article.has_audio() {
                     return false;
                 }
-                if heading != "All headings" && !heading.is_empty() {
-                    if section_heading(&article.section) != heading {
-                        return false;
-                    }
+                if heading != "All headings"
+                    && !heading.is_empty()
+                    && section_heading(&article.section) != heading
+                {
+                    return false;
                 }
                 true
             })
@@ -218,15 +219,15 @@ impl AppState {
         if self.lq.only_not_uploaded && article.uploaded_to_lingq {
             return false;
         }
-        if let Ok(Some(min_words)) = parse_optional_i64(&self.lq.min_words) {
-            if article.word_count < min_words {
-                return false;
-            }
+        if let Ok(Some(min_words)) = parse_optional_i64(&self.lq.min_words)
+            && article.word_count < min_words
+        {
+            return false;
         }
-        if let Ok(Some(max_words)) = parse_optional_i64(&self.lq.max_words) {
-            if article.word_count > max_words {
-                return false;
-            }
+        if let Ok(Some(max_words)) = parse_optional_i64(&self.lq.max_words)
+            && article.word_count > max_words
+        {
+            return false;
         }
         true
     }

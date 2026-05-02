@@ -162,10 +162,10 @@ fn post_process_transcript(raw: &str) -> String {
             // when -otxt is run with timestamps; with -nt or default behaviour
             // they're plain text. Strip a leading bracket span if present.
             let trimmed = line.trim();
-            if trimmed.starts_with('[') {
-                if let Some(close) = trimmed.find(']') {
-                    return trimmed[close + 1..].trim().to_owned();
-                }
+            if trimmed.starts_with('[')
+                && let Some(close) = trimmed.find(']')
+            {
+                return trimmed[close + 1..].trim().to_owned();
             }
             trimmed.to_owned()
         })

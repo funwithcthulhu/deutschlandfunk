@@ -39,10 +39,9 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
             .articles
             .get(index as usize)
             .map(|article| article.url.clone())
+            .filter(|url| !app.browse.selected.insert(url.clone()))
         {
-            if !app.browse.selected.insert(url.clone()) {
-                app.browse.selected.remove(&url);
-            }
+            app.browse.selected.remove(&url);
         }
         app.dirty.browse = true;
         app.sync_to_window();
@@ -117,10 +116,13 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
     let state_clone = state.clone();
     window.on_browse_toggle_bulk_section(move |index| {
         let mut app = state_clone.borrow_mut();
-        if let Some(section) = app.sections.get(index as usize) {
-            if !app.bulk.selected_sections.insert(section.id.to_owned()) {
-                app.bulk.selected_sections.remove(section.id);
-            }
+        if let Some(section_id) = app
+            .sections
+            .get(index as usize)
+            .map(|section| section.id.to_owned())
+            .filter(|section_id| !app.bulk.selected_sections.insert(section_id.clone()))
+        {
+            app.bulk.selected_sections.remove(section_id.as_str());
         }
         app.dirty.browse = true;
         app.sync_to_window();

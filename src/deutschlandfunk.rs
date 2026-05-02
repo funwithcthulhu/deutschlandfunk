@@ -18,310 +18,44 @@ use std::{
     time::Duration,
 };
 
-const BASE_URL: &str = "https://www.deutschlandfunk.de";
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+mod client_queries;
+mod model;
+mod sections;
+mod selectors;
+mod text;
 
-mod parsed {
-    use super::*;
-    pub static LINKS: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse(super::selectors::LINKS).unwrap());
-    pub static ARTICLE: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse(super::selectors::ARTICLE).unwrap());
-    pub static BODY_ELEMENTS: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse(super::selectors::BODY_ELEMENTS).unwrap());
-    pub static BODY_FALLBACK: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse(super::selectors::BODY_FALLBACK).unwrap());
-    pub static HEADLINE: LazyLock<Vec<Selector>> = LazyLock::new(|| {
-        super::selectors::HEADLINE
-            .iter()
-            .filter_map(|s| Selector::parse(s).ok())
-            .collect()
-    });
-    pub static CLIENT_QUERIES: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse("script.js-client-queries[data-json]").unwrap());
-}
+pub use model::{
+    Article, ArticleMetadata, ArticleSummary, AudioInfo, BrowseSectionResult, DiscoveryReport,
+    DiscoverySourceKind, Section,
+};
+pub use sections::SECTIONS;
 
-mod selectors {
-    pub const TITLE: &[&str] = &["meta[property=\"og:title\"]", "h1", "title"];
-    pub const SUBTITLE: &[&str] = &["meta[name=\"description\"]"];
-    pub const AUTHOR_FALLBACK: &[&str] = &["[rel=\"author\"]", ".author", "[class*=\"author\"]"];
-    pub const SECTION: &[&str] = &["meta[property=\"article:section\"]"];
-    pub const DATE_TIME: &[&str] = &["time[datetime]"];
-    pub const DATE_META: &[&str] = &[
-        "meta[property=\"article:published_time\"]",
-        "meta[name=\"date\"]",
-    ];
-
-    /// The visible article container. Deutschlandfunk wraps article content in
-    /// `<article class="b-article">` (sometimes additional modifier classes).
-    pub const ARTICLE: &str = "article.b-article, article[class*=\"b-article\"], article";
-    pub const BODY_ELEMENTS: &str = "p, h2, h3, li";
-    pub const BODY_FALLBACK: &str = "main p";
-
-    pub const LINKS: &str = "a[href]";
-
-    pub const HEADLINE: &[&str] = &[".headline", "h1", "h2", "h3", ".b-teaser-headline"];
-
-    /// Boilerplate / navigation strings that creep into the body text.
-    pub const BOILERPLATE_MARKERS: &[&str] = &[
-        "Audio herunterladen",
-        "Mehr zum Thema",
-        "Diesen Beitrag teilen",
-        "Newsletter abonnieren",
-        "Das könnte Sie auch interessieren",
-        "Beitrag teilen",
-        "Datenschutz",
-        "Impressum",
-        "Deutschlandfunk App",
-        "Folgen Sie uns auf",
-        "Akzeptieren",
-        "Cookie",
-    ];
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Section {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub url: &'static str,
-}
-
-/// Builtin Deutschlandfunk section landing pages. URLs verified against
-/// deutschlandfunk.de — every entry returns a 200 from the site as of the
-/// April 2026 audit. If a future redesign breaks one, run `cargo run --
-/// browse-url --url <…>` to confirm and update here.
-pub const SECTIONS: &[Section] = &[
-    Section {
-        id: "startseite",
-        label: "Startseite",
-        url: "https://www.deutschlandfunk.de/",
-    },
-    Section {
-        id: "nachrichten",
-        label: "Nachrichten",
-        url: "https://www.deutschlandfunk.de/nachrichten-100.html",
-    },
-    Section {
-        id: "hintergrund",
-        label: "Hintergrund",
-        url: "https://www.deutschlandfunk.de/hintergrund-100.html",
-    },
-    Section {
-        id: "interview",
-        label: "Interview",
-        url: "https://www.deutschlandfunk.de/interview-100.html",
-    },
-    Section {
-        id: "kommentar",
-        label: "Kommentar",
-        url: "https://www.deutschlandfunk.de/kommentare-und-themen-der-woche-100.html",
-    },
-    Section {
-        id: "europa",
-        label: "Europa heute",
-        url: "https://www.deutschlandfunk.de/europa-heute-100.html",
-    },
-    Section {
-        id: "wissenschaft",
-        label: "Forschung aktuell",
-        url: "https://www.deutschlandfunk.de/forschung-aktuell-100.html",
-    },
-    Section {
-        id: "umwelt",
-        label: "Umwelt und Verbraucher",
-        url: "https://www.deutschlandfunk.de/umwelt-und-verbraucher-100.html",
-    },
-    Section {
-        id: "kultur",
-        label: "Kultur heute",
-        url: "https://www.deutschlandfunk.de/kultur-heute-100.html",
-    },
-    Section {
-        id: "buecher",
-        label: "Büchermarkt",
-        url: "https://www.deutschlandfunk.de/buechermarkt-100.html",
-    },
-    Section {
-        id: "wirtschaft",
-        label: "Wirtschaft am Mittag",
-        url: "https://www.deutschlandfunk.de/wirtschaft-am-mittag-100.html",
-    },
-    Section {
-        id: "sport",
-        label: "Sport am Wochenende",
-        url: "https://www.deutschlandfunk.de/sport-am-wochenende-100.html",
-    },
-    Section {
-        id: "andruck",
-        label: "Andruck (Sachbuch)",
-        url: "https://www.deutschlandfunk.de/andruck-100.html",
-    },
-    Section {
-        id: "essay",
-        label: "Essay und Diskurs",
-        url: "https://www.deutschlandfunk.de/essay-und-diskurs-100.html",
-    },
-    Section {
-        id: "feature",
-        label: "Das Feature",
-        url: "https://www.deutschlandfunk.de/das-feature-100.html",
-    },
-    Section {
-        id: "hoerspiel",
-        label: "Hörspiel",
-        url: "https://www.deutschlandfunk.de/hoerspiel-100.html",
-    },
-    Section {
-        id: "presseschau",
-        label: "Presseschau (DE)",
-        url: "https://www.deutschlandfunk.de/presseschau-100.html",
-    },
-    Section {
-        id: "presseschau-int",
-        label: "Presseschau (intl.)",
-        url: "https://www.deutschlandfunk.de/internationale-presseschau-100.html",
-    },
-    Section {
-        id: "magazin",
-        label: "Dlf-Magazin",
-        url: "https://www.deutschlandfunk.de/dlf-magazin-102.html",
-    },
-];
-
-#[derive(Debug, Clone)]
-pub struct ArticleSummary {
-    pub url: String,
-    pub title: String,
-    pub teaser: String,
-    pub section: String,
-    pub source_kind: DiscoverySourceKind,
-    pub source_label: String,
-    /// True if the listing teaser indicates an audio attachment (best-effort).
-    pub has_audio_hint: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiscoverySourceKind {
-    Section,
-    Subsection,
-    Topic,
-    Search,
-}
-
-impl DiscoverySourceKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Section => "section",
-            Self::Subsection => "subsection",
-            Self::Topic => "topic",
-            Self::Search => "search",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DiscoveryReport {
-    pub source_pages_visited: usize,
-    pub section_pages_visited: usize,
-    pub subsection_pages_visited: usize,
-    pub topic_pages_visited: usize,
-    pub section_articles: usize,
-    pub subsection_articles: usize,
-    pub topic_articles: usize,
-    pub deduped_articles: usize,
-}
-
-impl DiscoveryReport {
-    fn record_source_visit(&mut self, source_kind: DiscoverySourceKind) {
-        self.source_pages_visited += 1;
-        match source_kind {
-            DiscoverySourceKind::Section => self.section_pages_visited += 1,
-            DiscoverySourceKind::Subsection => self.subsection_pages_visited += 1,
-            DiscoverySourceKind::Topic => self.topic_pages_visited += 1,
-            DiscoverySourceKind::Search => {}
-        }
-    }
-    fn record_article(&mut self, source_kind: DiscoverySourceKind) {
-        match source_kind {
-            DiscoverySourceKind::Section => self.section_articles += 1,
-            DiscoverySourceKind::Subsection => self.subsection_articles += 1,
-            DiscoverySourceKind::Topic => self.topic_articles += 1,
-            DiscoverySourceKind::Search => {}
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BrowseSectionResult {
-    pub articles: Vec<ArticleSummary>,
-    pub report: DiscoveryReport,
-}
-
-/// Audio metadata extracted from a Deutschlandfunk article. All URL fields are
-/// optional because some articles have only a download URL or only the
-/// streaming URL available.
-#[derive(Debug, Clone, Default)]
-pub struct AudioInfo {
-    pub audio_url: Option<String>,
-    pub download_url: Option<String>,
-    pub podcast_url: Option<String>,
-    pub duration_seconds: Option<i64>,
-    pub file_size_bytes: Option<i64>,
-    pub kicker: Option<String>,
-    pub leader: Option<String>,
-    pub show_notes: Option<String>,
-    pub author_text: Option<String>,
-    pub sophora_id: Option<String>,
-    pub dira_id: Option<String>,
-}
-
-impl AudioInfo {
-    pub fn is_empty(&self) -> bool {
-        self.audio_url.is_none() && self.download_url.is_none() && self.podcast_url.is_none()
-    }
-
-    /// Pick the URL most suitable for downloading the MP3 — prefer the
-    /// `downloadUrl` (direct CDN) over the streaming `audioUrl`.
-    pub fn best_download_url(&self) -> Option<&str> {
-        self.download_url
-            .as_deref()
-            .or(self.audio_url.as_deref())
-            .or(self.podcast_url.as_deref())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Article {
-    pub url: String,
-    pub title: String,
-    pub subtitle: String,
-    pub author: String,
-    pub date: String,
-    pub section: String,
-    pub body_text: String,
-    pub clean_text: String,
-    pub word_count: usize,
-    pub difficulty: i64,
-    pub fetched_at: String,
-    /// True when site-style indicators (or absent body text) suggest the page
-    /// is primarily an audio piece without a full transcript.
-    pub paywalled: bool,
-    pub audio: AudioInfo,
-}
-
-#[derive(Debug, Clone)]
-pub struct ArticleMetadata {
-    pub url: String,
-    pub title: String,
-    pub date: String,
-    pub section: String,
-}
+use client_queries::{
+    extract_article_copy_text, extract_article_meta_fields, extract_audio,
+    first_string_from_scripts, infer_section_from_scripts, parse_client_queries,
+};
+use sections::{BASE_URL, USER_AGENT};
+use selectors::parsed;
+use text::{clean_whitespace, collect_text, strip_markup, trim_chars};
 
 #[derive(Clone)]
 pub struct DeutschlandfunkClient {
     client: Client,
     article_url_re: Regex,
 }
+
+struct ArticleCollection<'a> {
+    document: &'a Html,
+    fallback_section: Option<&'a str>,
+    source_url: &'a str,
+    source_kind: DiscoverySourceKind,
+    limit: usize,
+    seen: &'a mut HashSet<String>,
+    articles: &'a mut Vec<ArticleSummary>,
+    report: &'a mut DiscoveryReport,
+}
+
+static SECTION_URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-\d+\.html$").unwrap());
 
 impl DeutschlandfunkClient {
     pub fn new() -> Result<Self> {
@@ -369,7 +103,7 @@ impl DeutschlandfunkClient {
                 continue;
             }
             // Section-style landings end with -100.html / -102.html etc.
-            if !Regex::new(r"-\d+\.html$").unwrap().is_match(&url) {
+            if !SECTION_URL_RE.is_match(&url) {
                 continue;
             }
             let label = clean_whitespace(&collect_text(el));
@@ -422,16 +156,16 @@ impl DeutschlandfunkClient {
             let document = Html::parse_document(&html);
             report.record_source_visit(kind);
 
-            self.collect_articles_from_document(
-                &document,
-                Some(&fallback_section),
-                &url,
-                kind,
+            self.collect_articles_from_document(ArticleCollection {
+                document: &document,
+                fallback_section: Some(&fallback_section),
+                source_url: &url,
+                source_kind: kind,
                 limit,
-                &mut seen_articles,
-                &mut articles,
-                &mut report,
-            );
+                seen: &mut seen_articles,
+                articles: &mut articles,
+                report: &mut report,
+            });
 
             if articles.len() >= limit {
                 break;
@@ -451,16 +185,17 @@ impl DeutschlandfunkClient {
         let document = Html::parse_document(&html);
         let mut articles = Vec::new();
         let mut seen = HashSet::new();
-        self.collect_articles_from_document(
-            &document,
+        let mut report = DiscoveryReport::default();
+        self.collect_articles_from_document(ArticleCollection {
+            document: &document,
             fallback_section,
-            url,
-            DiscoverySourceKind::Section,
+            source_url: url,
+            source_kind: DiscoverySourceKind::Section,
             limit,
-            &mut seen,
-            &mut articles,
-            &mut DiscoveryReport::default(),
-        );
+            seen: &mut seen,
+            articles: &mut articles,
+            report: &mut report,
+        });
         Ok(articles)
     }
 
@@ -494,16 +229,16 @@ impl DeutschlandfunkClient {
             };
             let document = Html::parse_document(&html);
             let before = articles.len();
-            self.collect_articles_from_document(
-                &document,
-                None,
-                &url,
-                DiscoverySourceKind::Search,
-                usize::MAX,
-                &mut seen,
-                &mut articles,
-                &mut report,
-            );
+            self.collect_articles_from_document(ArticleCollection {
+                document: &document,
+                fallback_section: None,
+                source_url: &url,
+                source_kind: DiscoverySourceKind::Search,
+                limit: usize::MAX,
+                seen: &mut seen,
+                articles: &mut articles,
+                report: &mut report,
+            });
             if articles.len() == before {
                 break;
             }
@@ -744,17 +479,17 @@ impl DeutschlandfunkClient {
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("network: failed to fetch {url}")))
     }
 
-    fn collect_articles_from_document(
-        &self,
-        document: &Html,
-        fallback_section: Option<&str>,
-        source_url: &str,
-        source_kind: DiscoverySourceKind,
-        limit: usize,
-        seen: &mut HashSet<String>,
-        articles: &mut Vec<ArticleSummary>,
-        report: &mut DiscoveryReport,
-    ) {
+    fn collect_articles_from_document(&self, ctx: ArticleCollection<'_>) {
+        let ArticleCollection {
+            document,
+            fallback_section,
+            source_url,
+            source_kind,
+            limit,
+            seen,
+            articles,
+            report,
+        } = ctx;
         let selector = parsed::LINKS.clone();
         for link in document.select(&selector) {
             let Some(raw_href) = link.value().attr("href") else {
@@ -820,8 +555,7 @@ impl DeutschlandfunkClient {
             }
             parent = node.parent();
         }
-        let direct = clean_whitespace(&collect_text(link));
-        direct
+        clean_whitespace(&collect_text(link))
     }
 
     fn extract_teaser(&self, link: ElementRef<'_>) -> String {
@@ -839,185 +573,6 @@ impl DeutschlandfunkClient {
         }
         String::new()
     }
-}
-
-// ── Body / metadata extraction ────────────────────────────────────────────
-
-fn parse_client_queries(document: &Html) -> Vec<Value> {
-    let mut out = Vec::new();
-    for el in document.select(&parsed::CLIENT_QUERIES) {
-        let Some(raw) = el.value().attr("data-json") else {
-            continue;
-        };
-        // The attribute is HTML-encoded — scraper already decodes entities,
-        // but in case of stray escapes we run a small fixup.
-        match serde_json::from_str::<Value>(raw) {
-            Ok(v) => out.push(v),
-            Err(_) => {
-                let decoded = decode_html_entities(raw);
-                if let Ok(v) = serde_json::from_str::<Value>(&decoded) {
-                    out.push(v);
-                }
-            }
-        }
-    }
-    out
-}
-
-fn decode_html_entities(input: &str) -> String {
-    input
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&#x27;", "'")
-        .replace("&#39;", "'")
-}
-
-/// Extract the article copy text from the parsed `js-client-queries` JSON
-/// blobs. Deutschlandfunk renders only the lede/teaser as visible HTML
-/// `<p>` tags; the full body lives inside an Article entry's
-/// `articleCopyText` array (a list of `ParagraphText` / `ParagraphHeading`
-/// / `ParagraphList` blocks). For audio pieces the field is absent — we
-/// fall back to the visible HTML.
-fn extract_article_copy_text(scripts: &[Value]) -> Option<String> {
-    for script in scripts {
-        let value = script.get("value")?;
-        let typename = value
-            .get("__typename")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
-        if typename != "Article" && typename != "AudioArticle" {
-            continue;
-        }
-        // The field name varies slightly across content types.
-        let copy = value
-            .get("articleCopyText")
-            .or_else(|| value.get("audioCopyText"))
-            .or_else(|| value.get("copyText"))
-            .and_then(|v| v.as_array())?;
-
-        let mut blocks = Vec::new();
-        for block in copy {
-            let Some(obj) = block.as_object() else {
-                continue;
-            };
-            let kind = obj.get("__typename").and_then(|v| v.as_str()).unwrap_or("");
-            let content = obj
-                .get("content")
-                .and_then(|v| v.as_str())
-                .map(strip_markup)
-                .map(|s| clean_whitespace(&s))
-                .unwrap_or_default();
-            if content.is_empty() {
-                continue;
-            }
-            match kind {
-                "ParagraphText" => blocks.push(content),
-                "ParagraphHeading" | "ParagraphSubheading" => blocks.push(format!("## {content}")),
-                "ParagraphList" | "ParagraphBulletList" | "ParagraphOrderedList" => {
-                    // Some lists store items in a separate field; fall back to plain content.
-                    if let Some(items) = obj.get("items").and_then(|v| v.as_array()) {
-                        for item in items {
-                            if let Some(t) = item.as_str() {
-                                let cleaned = clean_whitespace(t);
-                                if !cleaned.is_empty() {
-                                    blocks.push(format!("- {cleaned}"));
-                                }
-                            }
-                        }
-                    } else if !content.is_empty() {
-                        blocks.push(format!("- {content}"));
-                    }
-                }
-                "ParagraphQuote" => blocks.push(format!("\u{201E}{content}\u{201C}")),
-                _ => {} // ignore ParagraphImage, ParagraphAudio, ParagraphGallery, …
-            }
-        }
-
-        if blocks.is_empty() {
-            continue;
-        }
-        return Some(blocks.join("\n\n"));
-    }
-    None
-}
-
-/// Pull a few free-floating fields off the Article entry that only exist in
-/// the JSON (kicker, leader, news source, etc.). Returns `(kicker, leader,
-/// news_source)` — any of them may be empty.
-fn extract_article_meta_fields(
-    scripts: &[Value],
-) -> (Option<String>, Option<String>, Option<String>) {
-    for script in scripts {
-        let Some(value) = script.get("value") else {
-            continue;
-        };
-        let typename = value
-            .get("__typename")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
-        if typename != "Article" && typename != "AudioArticle" {
-            continue;
-        }
-        let s = |k: &str| {
-            value
-                .get(k)
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty())
-        };
-        return (
-            s("articleKicker").or_else(|| s("kicker")),
-            s("articleLeader").or_else(|| s("leader")),
-            s("articleNewsSource"),
-        );
-    }
-    (None, None, None)
-}
-
-fn extract_audio(scripts: &[Value]) -> AudioInfo {
-    // Find first script whose .value.__typename == "Audio"; capture its main fields.
-    for script in scripts {
-        let value = match script.get("value") {
-            Some(v) => v,
-            None => continue,
-        };
-        if value.get("__typename").and_then(|x| x.as_str()) != Some("Audio") {
-            continue;
-        }
-        let s = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_owned);
-        let i = |key: &str| value.get(key).and_then(|v| v.as_i64());
-        return AudioInfo {
-            audio_url: s("audioUrl"),
-            download_url: s("downloadUrl"),
-            podcast_url: s("audioUrlPodcast"),
-            duration_seconds: i("duration"),
-            file_size_bytes: i("fileSize"),
-            kicker: s("audioKicker"),
-            leader: s("audioLeader"),
-            show_notes: s("audioShowNotes"),
-            author_text: s("authorText"),
-            sophora_id: s("sophoraId"),
-            dira_id: s("diraId"),
-        };
-    }
-    AudioInfo::default()
-}
-
-fn first_string_from_scripts(scripts: &[Value], keys: &[&str]) -> Option<String> {
-    for script in scripts {
-        let value = script.get("value")?;
-        for key in keys {
-            if let Some(v) = value.get(*key).and_then(|v| v.as_str()) {
-                let trimmed = v.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_owned());
-                }
-            }
-        }
-    }
-    None
 }
 
 fn extract_date(document: &Html, html: &str, url: &str, scripts: &[Value]) -> Option<String> {
@@ -1060,10 +615,6 @@ fn extract_date_from_url(url: &str) -> Option<String> {
     ))
 }
 
-fn infer_section_from_scripts(scripts: &[Value]) -> Option<String> {
-    first_string_from_scripts(scripts, &["pageType", "siteName"])
-}
-
 fn infer_section_from_url(url: &str) -> String {
     let path = url
         .trim_start_matches(BASE_URL)
@@ -1078,8 +629,7 @@ fn infer_section_from_url(url: &str) -> String {
     // The slug usually ends with "-NNN.html" — strip and humanize
     let slug = path.trim_end_matches(".html");
     let slug = Regex::new(r"-\d+$").unwrap().replace(slug, "");
-    let humanized = slug.replace('-', " ");
-    humanized
+    slug.replace('-', " ")
 }
 
 const EXCLUDE_ANCESTOR_TAGS: &[&str] =
@@ -1102,10 +652,10 @@ fn has_excluded_ancestor(node: &ElementRef<'_>) -> bool {
             if EXCLUDE_ANCESTOR_TAGS.contains(&tag) {
                 return true;
             }
-            if let Some(classes) = element.attr("class") {
-                if EXCLUDE_ANCESTOR_CLASSES.iter().any(|c| classes.contains(c)) {
-                    return true;
-                }
+            if let Some(classes) = element.attr("class")
+                && EXCLUDE_ANCESTOR_CLASSES.iter().any(|c| classes.contains(c))
+            {
+                return true;
             }
         }
         current = parent_ref.parent();
@@ -1388,37 +938,6 @@ fn absolute_url(raw_href: &str) -> String {
     format!("{BASE_URL}/{raw_href}")
 }
 
-fn collect_text(node: ElementRef<'_>) -> String {
-    node.text().collect::<String>()
-}
-
-static RE_PUNCTUATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+([,;:.!?)])").unwrap());
-static RE_OPENING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([(\[])\s+").unwrap());
-static RE_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
-
-fn clean_whitespace(input: &str) -> String {
-    let cleaned = input
-        .replace(
-            [
-                '\u{00ad}', '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}',
-            ],
-            "",
-        )
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let cleaned = RE_PUNCTUATION.replace_all(&cleaned, "$1").into_owned();
-    RE_OPENING.replace_all(&cleaned, "$1").into_owned()
-}
-
-fn strip_markup(input: &str) -> String {
-    clean_whitespace(&RE_TAG.replace_all(input, " "))
-}
-
-fn trim_chars(input: &str, max: usize) -> String {
-    input.chars().take(max).collect()
-}
-
 fn iso_timestamp_now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
@@ -1448,10 +967,10 @@ fn normalize_date(input: &str) -> String {
     if chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").is_ok() && trimmed.len() == 10 {
         return trimmed.to_owned();
     }
-    if trimmed.len() >= 10 {
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(&trimmed[..10], "%Y-%m-%d") {
-            return d.format("%Y-%m-%d").to_string();
-        }
+    if trimmed.len() >= 10
+        && let Ok(d) = chrono::NaiveDate::parse_from_str(&trimmed[..10], "%Y-%m-%d")
+    {
+        return d.format("%Y-%m-%d").to_string();
     }
     if let Ok(d) = chrono::NaiveDate::parse_from_str(trimmed, "%d.%m.%Y") {
         return d.format("%Y-%m-%d").to_string();
@@ -1557,9 +1076,11 @@ mod tests {
 
     #[test]
     fn best_download_url_prefers_download_over_streaming() {
-        let mut info = AudioInfo::default();
-        info.audio_url = Some("https://ondemand-mp3.dradio.de/x.mp3".to_owned());
-        info.download_url = Some("https://download.deutschlandfunk.de/x.mp3".to_owned());
+        let info = AudioInfo {
+            audio_url: Some("https://ondemand-mp3.dradio.de/x.mp3".to_owned()),
+            download_url: Some("https://download.deutschlandfunk.de/x.mp3".to_owned()),
+            ..Default::default()
+        };
         assert_eq!(
             info.best_download_url(),
             Some("https://download.deutschlandfunk.de/x.mp3")

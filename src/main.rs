@@ -7,7 +7,12 @@ use deutschlandfunk_lingq_tool::{
     database::{ArticleQuery, Database},
     deutschlandfunk::{ArticleSummary, DeutschlandfunkClient},
     gui,
-    lingq::{LingqClient, UploadRequest},
+    lingq::LingqClient,
+    services::{
+        ingest::download_article_audio,
+        transcription::transcribe_saved_article,
+        upload::{UploadArticleOptions, upload_article_to_lingq},
+    },
 };
 use log::info;
 
@@ -34,7 +39,9 @@ enum Commands {
     Upload(UploadArgs),
     /// Print resolved app data dir, audio dir, settings, DB stats, and
     /// LingQ token presence. Useful for debugging.
-    Doctor,
+    Doctor(DoctorArgs),
+    /// Create a SQLite-safe backup of the local library database.
+    Backup(BackupArgs),
     /// Transcribe an article's local MP3 with whisper.cpp and store the
     /// transcript in the library.
     Transcribe(TranscribeArgs),
@@ -44,6 +51,18 @@ enum Commands {
 struct TranscribeArgs {
     #[arg(long)]
     id: i64,
+}
+
+#[derive(Args)]
+struct DoctorArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct BackupArgs {
+    #[arg(long)]
+    output: Option<String>,
 }
 
 #[derive(Args)]
@@ -171,27 +190,32 @@ async fn main() -> Result<()> {
 
             let mut local_audio_path: Option<String> = None;
             if args.with_audio {
-                if let Some(audio_url) = article.audio.best_download_url() {
-                    let audio_dir =
-                        audio::resolve_audio_dir(args.audio_dir.as_deref().unwrap_or(""))?;
-                    let dest = audio::audio_file_path(
-                        &audio_dir,
-                        &article.url,
-                        article.audio.sophora_id.as_deref(),
-                    );
-                    println!("Downloading audio → {} ...", dest.display());
-                    let bytes = scraper
-                        .download_audio(audio_url, &dest, |downloaded, total| {
-                            if total > 0 && downloaded % (1024 * 1024) < 65_536 {
-                                let pct = (downloaded as f64 / total as f64) * 100.0;
-                                eprintln!("  {pct:>5.1}%  ({downloaded} / {total} bytes)");
-                            }
-                        })
-                        .await?;
-                    println!("Saved {} bytes to {}", bytes, dest.display());
-                    local_audio_path = Some(dest.to_string_lossy().into_owned());
-                } else {
-                    println!("(no audio available for this article)");
+                match download_article_audio(
+                    &scraper,
+                    &article,
+                    args.audio_dir.as_deref().unwrap_or(""),
+                    |downloaded, total| {
+                        if total > 0 && downloaded % (1024 * 1024) < 65_536 {
+                            let pct = (downloaded as f64 / total as f64) * 100.0;
+                            eprintln!("  {pct:>5.1}%  ({downloaded} / {total} bytes)");
+                        }
+                    },
+                )
+                .await?
+                {
+                    Some(download) => {
+                        if download.reused_existing {
+                            println!("Using existing audio at {}", download.path.display());
+                        } else {
+                            println!(
+                                "Saved {} bytes to {}",
+                                download.bytes,
+                                download.path.display()
+                            );
+                        }
+                        local_audio_path = Some(download.path.to_string_lossy().into_owned());
+                    }
+                    None => println!("(no audio available for this article)"),
                 }
             }
 
@@ -207,25 +231,30 @@ async fn main() -> Result<()> {
         }
         Commands::Audio(args) => {
             let article = scraper.fetch_article(&args.url).await?;
-            let Some(audio_url) = article.audio.best_download_url() else {
-                anyhow::bail!("no audio attachment found for {}", args.url);
-            };
-            let audio_dir = audio::resolve_audio_dir(args.audio_dir.as_deref().unwrap_or(""))?;
-            let dest = audio::audio_file_path(
-                &audio_dir,
-                &article.url,
-                article.audio.sophora_id.as_deref(),
-            );
-            println!("Downloading {audio_url} → {}", dest.display());
-            let bytes = scraper
-                .download_audio(audio_url, &dest, |downloaded, total| {
+            let Some(download) = download_article_audio(
+                &scraper,
+                &article,
+                args.audio_dir.as_deref().unwrap_or(""),
+                |downloaded, total| {
                     if total > 0 && downloaded % (1024 * 1024) < 65_536 {
                         let pct = (downloaded as f64 / total as f64) * 100.0;
                         eprintln!("  {pct:>5.1}%  ({downloaded} / {total} bytes)");
                     }
-                })
-                .await?;
-            println!("Saved {} bytes", bytes);
+                },
+            )
+            .await?
+            else {
+                anyhow::bail!("no audio attachment found for {}", args.url);
+            };
+            if download.reused_existing {
+                println!("Using existing audio at {}", download.path.display());
+            } else {
+                println!(
+                    "Saved {} bytes to {}",
+                    download.bytes,
+                    download.path.display()
+                );
+            }
         }
         Commands::Library(args) => {
             let db = Database::open_default()?;
@@ -265,55 +294,40 @@ async fn main() -> Result<()> {
 
             let api_key = resolve_api_key(args.api_key)?;
             let lingq = LingqClient::new()?;
-            let audio_path = if args.with_audio && !article.audio_local_path.is_empty() {
-                Some(std::path::PathBuf::from(&article.audio_local_path))
-            } else {
-                None
-            };
-            let upload = lingq
-                .upload_lesson(&UploadRequest {
+            let upload = upload_article_to_lingq(
+                &lingq,
+                &db,
+                article.id,
+                &UploadArticleOptions {
                     api_key,
                     language_code: args.language.clone(),
                     collection_id: args.collection,
-                    title: article.title.clone(),
-                    text: article.upload_text().to_owned(),
-                    original_url: Some(article.url.clone()),
-                    audio_path,
-                })
-                .await?;
-
-            db.mark_uploaded(article.id, upload.lesson_id, &upload.lesson_url)?;
+                    attach_audio: args.with_audio,
+                },
+            )
+            .await?;
 
             println!(
                 "Uploaded article #{} to LingQ lesson {}",
-                article.id, upload.lesson_id
+                upload.article_id, upload.lesson_id
             );
             println!("{}", upload.lesson_url);
         }
-        Commands::Doctor => run_doctor()?,
+        Commands::Doctor(args) => run_doctor(args.json)?,
+        Commands::Backup(args) => run_backup(args.output.as_deref())?,
         Commands::Transcribe(args) => {
             use deutschlandfunk_lingq_tool::{settings::SettingsStore, transcribe};
             let db = Database::open_default()?;
+            let settings = SettingsStore::load_default()?;
+            let cfg = transcribe::WhisperConfig::from_settings(settings.data())?;
             let article = db
                 .get_article(args.id)?
                 .ok_or_else(|| anyhow!("article #{} not found", args.id))?;
-            if article.audio_local_path.trim().is_empty() {
-                anyhow::bail!(
-                    "article #{} has no local audio (run `fetch --with-audio` first)",
-                    args.id
-                );
-            }
-            let settings = SettingsStore::load_default()?;
-            let cfg = transcribe::WhisperConfig::from_settings(settings.data())?;
             println!("Transcribing {} ...", article.audio_local_path);
-            let text =
-                transcribe::transcribe_audio(&cfg, std::path::Path::new(&article.audio_local_path))
-                    .await?;
-            db.set_transcript(article.id, &text, &cfg.source_tag())?;
+            let outcome = transcribe_saved_article(&db, args.id, &cfg).await?;
             println!(
                 "Saved {} chars of transcript ({}).",
-                text.len(),
-                cfg.source_tag()
+                outcome.chars, outcome.source
             );
         }
     }
@@ -322,8 +336,50 @@ async fn main() -> Result<()> {
 }
 
 /// Print a snapshot of the runtime environment to stdout. No network calls.
-fn run_doctor() -> Result<()> {
+fn run_doctor(json: bool) -> Result<()> {
     use deutschlandfunk_lingq_tool::{app_data_dir, settings::SettingsStore};
+    if json {
+        let app_data = app_data_dir().ok();
+        let mut settings_probe = deutschlandfunk_lingq_tool::settings::AppSettings::default();
+        let token = deutschlandfunk_lingq_tool::settings::load_api_key(&mut settings_probe);
+        let stats = Database::open_default().and_then(|db| db.get_stats()).ok();
+        let settings = SettingsStore::load_default().ok();
+        let report = serde_json::json!({
+            "app_data_dir": app_data.as_ref().map(|p| p.display().to_string()),
+            "settings": settings.as_ref().map(|store| {
+                let s = store.data();
+                serde_json::json!({
+                    "browse_section": s.browse_section,
+                    "lingq_language": s.lingq_language,
+                    "lingq_collection_id": s.lingq_collection_id,
+                    "audio_dir": if s.audio_dir.trim().is_empty() {
+                        app_data.as_ref().map(|p| p.join("audio").display().to_string()).unwrap_or_default()
+                    } else {
+                        s.audio_dir.clone()
+                    },
+                    "download_audio_on_fetch": s.download_audio_on_fetch,
+                    "upload_audio_to_lingq": s.upload_audio_to_lingq,
+                    "whisper_language": s.whisper_language,
+                    "whisper_cli_configured": !s.whisper_cli_path.trim().is_empty(),
+                    "whisper_model_configured": !s.whisper_model_path.trim().is_empty()
+                })
+            }),
+            "lingq_token_present": !token.trim().is_empty(),
+            "lingq_token_length": token.trim().len(),
+            "library": stats.as_ref().map(|s| serde_json::json!({
+                "total_articles": s.total_articles,
+                "uploaded_articles": s.uploaded_articles,
+                "average_word_count": s.average_word_count,
+                "sections": s.sections.iter().map(|section| serde_json::json!({
+                    "section": section.section,
+                    "count": section.count
+                })).collect::<Vec<_>>()
+            }))
+        });
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
     println!("Deutschlandfunk Reader — doctor report");
     println!("======================================");
 
@@ -390,6 +446,22 @@ fn run_doctor() -> Result<()> {
         Err(err) => println!("Library database: ERROR opening ({err:#})"),
     }
 
+    Ok(())
+}
+
+fn run_backup(output: Option<&str>) -> Result<()> {
+    let db = Database::open_default()?;
+    let path = match output {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+            deutschlandfunk_lingq_tool::app_data_dir()?
+                .join("backups")
+                .join(format!("deutschlandfunk_lingq_tool-{stamp}.db"))
+        }
+    };
+    db.backup_to(&path)?;
+    println!("Backup written to {}", path.display());
     Ok(())
 }
 

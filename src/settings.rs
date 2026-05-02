@@ -177,22 +177,21 @@ fn api_key_path() -> Result<PathBuf> {
 /// for migration from older versions.
 pub fn load_api_key(settings: &mut AppSettings) -> String {
     // Try the dedicated token file first
-    if let Ok(path) = api_key_path() {
-        if path.exists() {
-            if let Ok(token) = std::fs::read_to_string(&path) {
-                let token = token.trim().to_owned();
-                if !token.is_empty() {
-                    return token;
-                }
-            }
+    if let Ok(path) = api_key_path()
+        && path.exists()
+        && let Ok(token) = std::fs::read_to_string(&path)
+    {
+        let token = token.trim().to_owned();
+        if !token.is_empty() {
+            return token;
         }
     }
     // Fall back to the legacy settings.json field and migrate it out
     let legacy = std::mem::take(&mut settings.lingq_api_key);
-    if !legacy.trim().is_empty() {
-        if let Err(err) = save_api_key(&legacy) {
-            warn!("Failed to migrate API key to token file: {err:#}");
-        }
+    if !legacy.trim().is_empty()
+        && let Err(err) = save_api_key(&legacy)
+    {
+        warn!("Failed to migrate API key to token file: {err:#}");
     }
     legacy
 }
@@ -243,7 +242,7 @@ mod tests {
         let loaded = SettingsStore::load(path.clone()).unwrap();
         let d = loaded.data();
         assert_eq!(d.browse_section, "kultur");
-        assert_eq!(d.browse_only_new, false);
+        assert!(!d.browse_only_new);
         assert_eq!(d.library_sort, "title");
         assert_eq!(d.lingq_language, "fr");
         assert_eq!(d.bulk_max_articles, "100");

@@ -3,6 +3,7 @@ pub mod database;
 pub mod deutschlandfunk;
 pub mod gui;
 pub mod lingq;
+pub mod services;
 pub mod settings;
 pub mod transcribe;
 

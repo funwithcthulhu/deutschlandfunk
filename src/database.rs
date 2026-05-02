@@ -9,12 +9,13 @@ use std::{
         Mutex,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 static IN_MEMORY_DB_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// ── SQL column list constants ────────────────────────────────────────────────
-/// Centralised here so SELECT and INSERT columns stay in sync across queries.
+// SQL column list constants. Centralized here so SELECT and INSERT columns stay
+// in sync across queries.
 
 /// Columns inserted when saving an article (excludes auto-generated id, uploaded fields).
 const INSERT_COLS: &str = "url, title, subtitle, author, date, section, clean_text, word_count, difficulty, fetched_at, paywalled, audio_url, audio_download_url, audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id";
@@ -186,6 +187,8 @@ impl Database {
             Connection::open(path)
                 .with_context(|| format!("failed to open database {}", path.display()))?
         };
+        configure_connection(&write_conn)
+            .context("failed to configure write database connection")?;
 
         // WAL mode allows concurrent readers + one writer without blocking.
         if !is_memory {
@@ -205,6 +208,7 @@ impl Database {
             )
             .with_context(|| format!("failed to open read-only database {}", path.display()))?
         };
+        configure_connection(&read_conn).context("failed to configure read database connection")?;
 
         let database = Self {
             write_conn: Mutex::new(write_conn),
@@ -260,6 +264,7 @@ impl Database {
             ],
             |row| row.get(0),
         )?;
+        sync_audio_asset(&conn, id, article)?;
 
         Ok(id)
     }
@@ -267,9 +272,20 @@ impl Database {
     /// Set the local file path for an article's downloaded audio. Only the
     /// path is updated — other audio metadata is left untouched.
     pub fn set_audio_local_path(&self, id: i64, path: &str) -> Result<()> {
-        self.conn()?.execute(
+        let conn = self.conn()?;
+        conn.execute(
             "UPDATE articles SET audio_local_path = ?1 WHERE id = ?2",
             params![path, id],
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO audio_assets (article_id, local_path, updated_at)
+            VALUES (?1, ?2, CURRENT_TIMESTAMP)
+            ON CONFLICT(article_id) DO UPDATE SET
+                local_path = excluded.local_path,
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+            params![id, path],
         )?;
         Ok(())
     }
@@ -277,10 +293,22 @@ impl Database {
     /// Store a transcript for an article. `source` is a freeform tag like
     /// "whisper-large-v3" or "manual". An empty `text` clears the column.
     pub fn set_transcript(&self, id: i64, text: &str, source: &str) -> Result<()> {
-        self.conn()?.execute(
+        let conn = self.conn()?;
+        conn.execute(
             "UPDATE articles SET transcript_text = ?1, transcript_source = ?2 WHERE id = ?3",
             params![text, source, id],
         )?;
+        if text.trim().is_empty() {
+            conn.execute("DELETE FROM transcripts WHERE article_id = ?1", params![id])?;
+        } else {
+            conn.execute(
+                r#"
+                INSERT INTO transcripts (article_id, transcript_text, transcript_source)
+                VALUES (?1, ?2, ?3)
+                "#,
+                params![id, text, source],
+            )?;
+        }
         Ok(())
     }
 
@@ -292,12 +320,13 @@ impl Database {
         let sql = format!(
             "INSERT INTO articles ({INSERT_COLS})
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-             ON CONFLICT(url) DO UPDATE SET {UPSERT_SET}"
+             ON CONFLICT(url) DO UPDATE SET {UPSERT_SET}
+             RETURNING id"
         );
         let mut saved = 0;
         for article in articles {
             debug!("Batch saving: {} ({})", article.title, article.url);
-            match conn.execute(
+            match conn.query_row(
                 &sql,
                 params![
                     article.url,
@@ -318,8 +347,14 @@ impl Database {
                     article.audio.kicker.clone().unwrap_or_default(),
                     article.audio.sophora_id.clone().unwrap_or_default(),
                 ],
+                |row| row.get::<_, i64>(0),
             ) {
-                Ok(_) => saved += 1,
+                Ok(article_id) => {
+                    saved += 1;
+                    if let Err(err) = sync_audio_asset(&conn, article_id, article) {
+                        log::warn!("Audio asset sync failed for {}: {err:#}", article.url);
+                    }
+                }
                 Err(err) => log::warn!("Batch save failed for {}: {err:#}", article.url),
             }
         }
@@ -341,7 +376,7 @@ impl Database {
 
         // Use FTS5 MATCH when search term is provided; fall back to LIKE for
         // terms that contain FTS special characters that might trip up the parser.
-        let fts_term = query.search.as_deref().map(|s| sanitize_fts_query(s));
+        let fts_term = query.search.as_deref().map(sanitize_fts_query);
         let use_fts = fts_term.as_ref().is_some_and(|t| !t.is_empty());
 
         let sql = if use_fts {
@@ -405,7 +440,7 @@ impl Database {
             _ => "date DESC, id DESC",
         };
 
-        let fts_term = query.search.as_deref().map(|s| sanitize_fts_query(s));
+        let fts_term = query.search.as_deref().map(sanitize_fts_query);
         let use_fts = fts_term.as_ref().is_some_and(|t| !t.is_empty());
 
         let sql = if use_fts {
@@ -479,9 +514,17 @@ impl Database {
     }
 
     pub fn mark_uploaded(&self, id: i64, lesson_id: i64, lesson_url: &str) -> Result<()> {
-        self.conn()?.execute(
+        let conn = self.conn()?;
+        conn.execute(
             "UPDATE articles SET uploaded_to_lingq = 1, lingq_lesson_id = ?1, lingq_lesson_url = ?2 WHERE id = ?3",
             params![lesson_id, lesson_url, id],
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO lingq_uploads (article_id, lesson_id, lesson_url)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![id, lesson_id, lesson_url],
         )?;
         Ok(())
     }
@@ -528,6 +571,17 @@ impl Database {
     /// Reclaim unused space in the database file.
     pub fn vacuum(&self) -> Result<()> {
         self.conn()?.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
+    pub fn backup_to(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create backup directory {}", parent.display())
+            })?;
+        }
+        self.conn()?
+            .execute("VACUUM INTO ?1", params![path.to_string_lossy().as_ref()])?;
         Ok(())
     }
 
@@ -635,17 +689,7 @@ impl Database {
 
     fn migrate(&self) -> Result<()> {
         let conn = self.conn()?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);",
-        )?;
-
-        let current_version: i64 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        let current_version = current_schema_version(&conn)?;
 
         if current_version < 1 {
             conn.execute_batch(
@@ -678,6 +722,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 1, "create articles table")?;
         }
 
         if current_version < 2 {
@@ -722,6 +767,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 2, "add article full-text search")?;
         }
 
         if current_version < 3 {
@@ -748,6 +794,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 3, "add difficulty column")?;
         }
 
         if current_version < 4 {
@@ -768,6 +815,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 4, "add library filter indexes")?;
         }
 
         if current_version < 5 {
@@ -815,6 +863,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 5, "include clean text in full-text search")?;
         }
 
         if current_version < 6 {
@@ -864,6 +913,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 6, "drop body text column from article storage")?;
         }
 
         if current_version < 7 {
@@ -878,6 +928,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 7, "add truncated article flag")?;
         }
 
         if current_version < 8 {
@@ -903,6 +954,7 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 8, "add audio metadata columns")?;
         }
 
         if current_version < 9 {
@@ -921,10 +973,170 @@ impl Database {
                 COMMIT;
                 "#,
             )?;
+            record_migration(&conn, 9, "add transcript columns")?;
+        }
+
+        if current_version < 10 {
+            conn.execute_batch(
+                r#"
+                BEGIN;
+
+                CREATE TABLE IF NOT EXISTS audio_assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_id INTEGER NOT NULL UNIQUE
+                        REFERENCES articles(id) ON DELETE CASCADE,
+                    audio_url TEXT NOT NULL DEFAULT '',
+                    download_url TEXT NOT NULL DEFAULT '',
+                    local_path TEXT NOT NULL DEFAULT '',
+                    duration_seconds INTEGER NOT NULL DEFAULT 0,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    kicker TEXT NOT NULL DEFAULT '',
+                    sophora_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS transcripts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_id INTEGER NOT NULL
+                        REFERENCES articles(id) ON DELETE CASCADE,
+                    transcript_text TEXT NOT NULL,
+                    transcript_source TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS lingq_uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_id INTEGER NOT NULL
+                        REFERENCES articles(id) ON DELETE CASCADE,
+                    lesson_id INTEGER NOT NULL,
+                    lesson_url TEXT NOT NULL,
+                    uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_audio_assets_article
+                    ON audio_assets(article_id);
+                CREATE INDEX IF NOT EXISTS idx_transcripts_article
+                    ON transcripts(article_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_lingq_uploads_article
+                    ON lingq_uploads(article_id, uploaded_at DESC);
+
+                INSERT OR IGNORE INTO audio_assets (
+                    article_id, audio_url, download_url, local_path,
+                    duration_seconds, size_bytes, kicker, sophora_id
+                )
+                SELECT id, audio_url, audio_download_url, audio_local_path,
+                       audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id
+                FROM articles
+                WHERE audio_url <> ''
+                   OR audio_download_url <> ''
+                   OR audio_local_path <> '';
+
+                INSERT INTO transcripts (article_id, transcript_text, transcript_source)
+                SELECT id, transcript_text, transcript_source
+                FROM articles
+                WHERE transcript_text <> '';
+
+                INSERT INTO lingq_uploads (article_id, lesson_id, lesson_url)
+                SELECT id, lingq_lesson_id, lingq_lesson_url
+                FROM articles
+                WHERE uploaded_to_lingq = 1 AND lingq_lesson_id IS NOT NULL;
+
+                INSERT INTO schema_version (version) VALUES (10);
+
+                COMMIT;
+                "#,
+            )?;
+            record_migration(&conn, 10, "add related audio transcript and upload tables")?;
         }
 
         Ok(())
     }
+}
+
+fn configure_connection(conn: &Connection) -> Result<()> {
+    conn.busy_timeout(Duration::from_secs(5))
+        .context("failed to set SQLite busy timeout")?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .context("failed to enable SQLite foreign keys")?;
+    Ok(())
+}
+
+fn current_schema_version(conn: &Connection) -> Result<i64> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        "#,
+    )?;
+
+    let legacy_version = max_version(conn, "schema_version")?;
+    let ledger_version = max_version(conn, "schema_migrations")?;
+
+    if ledger_version < legacy_version {
+        let mut stmt = conn.prepare(
+            "INSERT OR IGNORE INTO schema_migrations (version, name)
+             VALUES (?1, ?2)",
+        )?;
+        for version in (ledger_version + 1)..=legacy_version {
+            stmt.execute(params![version, format!("legacy migration {version}")])?;
+        }
+    }
+
+    Ok(legacy_version.max(ledger_version))
+}
+
+fn max_version(conn: &Connection, table: &str) -> Result<i64> {
+    let sql = format!("SELECT COALESCE(MAX(version), 0) FROM {table}");
+    Ok(conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(0))
+}
+
+fn record_migration(conn: &Connection, version: i64, name: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?1, ?2)",
+        params![version, name],
+    )?;
+    Ok(())
+}
+
+fn sync_audio_asset(conn: &Connection, article_id: i64, article: &Article) -> Result<()> {
+    if article.audio.is_empty() {
+        return Ok(());
+    }
+    conn.execute(
+        r#"
+        INSERT INTO audio_assets (
+            article_id, audio_url, download_url, duration_seconds,
+            size_bytes, kicker, sophora_id, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
+        ON CONFLICT(article_id) DO UPDATE SET
+            audio_url = excluded.audio_url,
+            download_url = excluded.download_url,
+            duration_seconds = excluded.duration_seconds,
+            size_bytes = excluded.size_bytes,
+            kicker = excluded.kicker,
+            sophora_id = excluded.sophora_id,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+        params![
+            article_id,
+            article.audio.audio_url.clone().unwrap_or_default(),
+            article.audio.download_url.clone().unwrap_or_default(),
+            article.audio.duration_seconds.unwrap_or(0),
+            article.audio.file_size_bytes.unwrap_or(0),
+            article.audio.kicker.clone().unwrap_or_default(),
+            article.audio.sophora_id.clone().unwrap_or_default(),
+        ],
+    )?;
+    Ok(())
 }
 
 fn map_article_meta_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredArticleMeta> {
@@ -1219,6 +1431,71 @@ mod tests {
         assert_eq!(stats.average_word_count, 5);
         assert_eq!(stats.sections.len(), 1);
         assert_eq!(stats.sections[0].section, "Sport");
+    }
+
+    #[test]
+    fn migrations_are_recorded_in_schema_migrations() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let conn = db.read().unwrap();
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert_eq!(version, 10);
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn related_tables_mirror_audio_transcripts_and_uploads() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let mut article = make_article("https://taz.de/a/!related/", "Related Tables");
+        article.audio.audio_url = Some("https://ondemand-mp3.dradio.de/related.mp3".to_owned());
+        article.audio.download_url =
+            Some("https://download.deutschlandfunk.de/related.mp3".to_owned());
+        article.audio.duration_seconds = Some(42);
+
+        let id = db.save_article(&article).unwrap();
+        db.set_audio_local_path(id, "C:\\audio\\related.mp3")
+            .unwrap();
+        db.set_transcript(id, "Hallo Welt", "whisper:test").unwrap();
+        db.mark_uploaded(id, 123, "https://lingq.com/lesson/123/")
+            .unwrap();
+
+        let conn = db.read().unwrap();
+        let audio_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audio_assets WHERE article_id = ?1 AND local_path <> ''",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let transcript_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM transcripts WHERE article_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let upload_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM lingq_uploads WHERE article_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(audio_count, 1);
+        assert_eq!(transcript_count, 1);
+        assert_eq!(upload_count, 1);
     }
 
     // ── Batch save ──

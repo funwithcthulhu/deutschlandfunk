@@ -29,7 +29,7 @@ pub fn resolve_audio_dir(configured: &str) -> Result<PathBuf> {
 /// back to a slug derived from the article URL.
 pub fn audio_file_path(audio_dir: &Path, article_url: &str, sophora_id: Option<&str>) -> PathBuf {
     let stem = sophora_id
-        .map(|s| sanitize_filename(s))
+        .map(sanitize_filename)
         .unwrap_or_else(|| slug_from_url(article_url));
     audio_dir.join(format!("{stem}.mp3"))
 }

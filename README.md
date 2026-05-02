@@ -87,6 +87,12 @@ cargo run -- upload --id 1 --api-key YOUR_LINGQ_API_KEY --with-audio
 # Print local app paths, DB stats, and LingQ token presence
 cargo run -- doctor
 
+# Same diagnostics as machine-readable JSON
+cargo run -- doctor --json
+
+# Write a SQLite-safe database backup (defaults to app data backups/)
+cargo run -- backup
+
 # Transcribe a saved article's local MP3 with whisper.cpp
 cargo run -- transcribe --id 1
 ```
@@ -109,6 +115,7 @@ App data is stored under:
 That includes:
 
 - the SQLite database (`deutschlandfunk_lingq_tool.db`)
+- database backups (`backups/*.db`) when created via `cargo run -- backup`
 - GUI/settings data (`settings.json`)
 - saved LingQ token information (`lingq_token`)
 - downloaded audio files (`audio/<sophora-id-or-slug>.mp3`) — unless you
@@ -127,7 +134,10 @@ src/
   lib.rs                  Module declarations + app data directory helper
   main.rs                 CLI subcommands + GUI entry point
   settings.rs             Persistent app settings (incl. audio_dir, toggles)
+  services/               Reusable ingest, upload, and transcription workflows
   transcribe.rs           Optional whisper.cpp integration for local transcripts
+tests/
+  fixtures/               Offline parser fixtures for scraper regression tests
 ui/
   app-window.slint        Main Slint UI definition
 assets/

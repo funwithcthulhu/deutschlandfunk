@@ -5,7 +5,7 @@ mod sync;
 use crate::{
     database::{ArticleQuery, Database, LibraryStats, StoredArticle, StoredArticleMeta},
     deutschlandfunk::{ArticleSummary, BrowseSectionResult, DeutschlandfunkClient, Section},
-    lingq::{Collection, LingqClient, UploadRequest},
+    lingq::{Collection, LingqClient},
     settings::{self, SettingsStore},
 };
 use chrono::{Datelike, NaiveDate};

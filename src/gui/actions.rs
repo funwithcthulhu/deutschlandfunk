@@ -1,55 +1,9 @@
 use super::*;
-
-/// Best-effort inline audio download triggered from the bulk save flows.
-/// Returns silently on every failure path — the article record is already
-/// saved, so a missed audio download just leaves `audio_local_path` empty
-/// and the user can retry later from the Audio tab.
-async fn try_inline_audio_download(
-    scraper: &crate::deutschlandfunk::DeutschlandfunkClient,
-    db: &Database,
-    article: &crate::deutschlandfunk::Article,
-    article_id: i64,
-    audio_dir_setting: &str,
-) {
-    if article.audio.is_empty() {
-        return;
-    }
-    let Some(audio_url) = article.audio.best_download_url() else {
-        return;
-    };
-    let audio_dir = match crate::audio::resolve_audio_dir(audio_dir_setting) {
-        Ok(p) => p,
-        Err(err) => {
-            log::warn!("inline audio download: bad audio dir: {err:#}");
-            return;
-        }
-    };
-    let dest = crate::audio::audio_file_path(
-        &audio_dir,
-        &article.url,
-        article.audio.sophora_id.as_deref(),
-    );
-    // Skip if we already have it (re-fetches shouldn't re-download).
-    if dest.is_file() {
-        let _ = db.set_audio_local_path(article_id, &dest.to_string_lossy());
-        return;
-    }
-    match scraper.download_audio(audio_url, &dest, |_, _| {}).await {
-        Ok(_) => {
-            if let Err(err) = db.set_audio_local_path(article_id, &dest.to_string_lossy()) {
-                log::warn!(
-                    "inline audio download saved {} but DB update failed: {err:#}",
-                    dest.display()
-                );
-            }
-        }
-        Err(err) => log::warn!(
-            "inline audio download failed for {} ({}): {err:#}",
-            article.title,
-            audio_url
-        ),
-    }
-}
+use crate::services::ingest::{
+    AudioFailureMode, SaveArticleOptions, save_article_with_optional_audio,
+};
+use crate::services::transcription::transcribe_saved_article;
+use crate::services::upload::{UploadArticleOptions, upload_article_to_lingq};
 
 impl AppState {
     pub(super) fn load_browse(&mut self) {
@@ -202,7 +156,7 @@ impl AppState {
         if let Some(until) = self.lq.login_cooldown_until {
             if std::time::Instant::now() < until {
                 let secs = until.duration_since(std::time::Instant::now()).as_secs();
-                self.set_status(&format!(
+                self.set_status(format!(
                     "Too many failed login attempts. Try again in {secs}s."
                 ));
                 return;
@@ -251,6 +205,11 @@ impl AppState {
         let cancel = self.cancel_flag.clone();
         let download_audio = self.settings.data().download_audio_on_fetch;
         let audio_dir_setting = self.settings.data().audio_dir.clone();
+        let save_options = SaveArticleOptions {
+            download_audio,
+            audio_dir: audio_dir_setting,
+            audio_failure_mode: AudioFailureMode::BestEffort,
+        };
         self.runtime.spawn(async move {
             let result: Result<(usize, Vec<String>, Vec<String>), String> = async {
                 let mut saved = 0usize;
@@ -270,25 +229,24 @@ impl AppState {
                         tokio::time::sleep(REQUEST_THROTTLE).await;
                     }
                     match scraper.fetch_article(&url).await {
-                        Ok(article) => match db.save_article(&article) {
-                            Ok(article_id) => {
-                                saved += 1;
-                                if download_audio {
-                                    try_inline_audio_download(
-                                        &scraper,
-                                        &db,
-                                        &article,
-                                        article_id,
-                                        &audio_dir_setting,
-                                    )
-                                    .await;
+                        Ok(article) => {
+                            match save_article_with_optional_audio(
+                                &scraper,
+                                &db,
+                                &article,
+                                &save_options,
+                            )
+                            .await
+                            {
+                                Ok(_) => {
+                                    saved += 1;
+                                }
+                                Err(err) => {
+                                    failed.push(format!("{}: {}", article.title, err));
+                                    failed_urls.push(url.clone());
                                 }
                             }
-                            Err(err) => {
-                                failed.push(format!("{}: {}", article.title, err));
-                                failed_urls.push(url.clone());
-                            }
-                        },
+                        }
                         Err(err) => {
                             failed.push(format!("{url}: {err}"));
                             failed_urls.push(url.clone());
@@ -401,6 +359,11 @@ impl AppState {
         let cancel = self.cancel_flag.clone();
         let download_audio = self.settings.data().download_audio_on_fetch;
         let audio_dir_setting = self.settings.data().audio_dir.clone();
+        let save_options = SaveArticleOptions {
+            download_audio,
+            audio_dir: audio_dir_setting,
+            audio_failure_mode: AudioFailureMode::BestEffort,
+        };
         self.runtime.spawn(async move {
             let result: Result<(usize, usize, usize, Vec<String>, bool), String> = async {
                 let discovery_limit = per_section_cap.saturating_mul(4).max(160);
@@ -459,19 +422,17 @@ impl AppState {
                                 }
 
                                 consecutive_old = 0;
-                                match db.save_article(&article) {
-                                    Ok(article_id) => {
+                                match save_article_with_optional_audio(
+                                    &scraper,
+                                    &db,
+                                    &article,
+                                    &save_options,
+                                )
+                                .await
+                                {
+                                    Ok(_) => {
                                         saved += 1;
                                         accepted_for_section += 1;
-                                        if download_audio {
-                                            try_inline_audio_download(
-                                                &scraper,
-                                                &db,
-                                                &article,
-                                                article_id,
-                                                &audio_dir_setting,
-                                            ).await;
-                                        }
                                         let _ = tx.send(AppEvent::FetchProgress(FetchProgress {
                                             label: format!("Fetching: {}", section.label),
                                             completed: saved.min(max_articles),
@@ -547,6 +508,11 @@ impl AppState {
         let cancel = self.cancel_flag.clone();
         let download_audio = self.settings.data().download_audio_on_fetch;
         let audio_dir_setting = self.settings.data().audio_dir.clone();
+        let save_options = SaveArticleOptions {
+            download_audio,
+            audio_dir: audio_dir_setting,
+            audio_failure_mode: AudioFailureMode::BestEffort,
+        };
 
         self.runtime.spawn(async move {
             let result: Result<(usize, usize, Vec<String>, bool), String> = async {
@@ -602,19 +568,17 @@ impl AppState {
                                 }
 
                                 consecutive_old = 0;
-                                match db.save_article(&article) {
-                                    Ok(article_id) => {
+                                match save_article_with_optional_audio(
+                                    &scraper,
+                                    &db,
+                                    &article,
+                                    &save_options,
+                                )
+                                .await
+                                {
+                                    Ok(_) => {
                                         saved += 1;
                                         accepted_for_section += 1;
-                                        if download_audio {
-                                            try_inline_audio_download(
-                                                &scraper,
-                                                &db,
-                                                &article,
-                                                article_id,
-                                                &audio_dir_setting,
-                                            ).await;
-                                        }
                                         let _ = tx.send(AppEvent::FetchProgress(FetchProgress {
                                             label: format!("Auto-fetch: {}", section.label),
                                             completed: saved.min(max_articles),
@@ -691,6 +655,12 @@ impl AppState {
         let language = self.lq.language.clone();
         let collection_id = self.lq.selected_collection;
         let upload_audio = self.settings.data().upload_audio_to_lingq;
+        let upload_options = UploadArticleOptions {
+            api_key,
+            language_code: language,
+            collection_id,
+            attach_audio: upload_audio,
+        };
         self.cancel_flag.store(false, Ordering::Relaxed);
         self.progress = Some(FetchProgress {
             label: "Uploading to LingQ".to_owned(),
@@ -723,55 +693,16 @@ impl AppState {
                     if index > 0 {
                         tokio::time::sleep(REQUEST_THROTTLE).await;
                     }
-                    let Some(article) = db.get_article(id).map_err(|err| format!("{err:#}"))?
-                    else {
-                        failed.push(format!("article #{id} not found"));
-                        continue;
-                    };
-                    let audio_path = if upload_audio && !article.audio_local_path.trim().is_empty()
-                    {
-                        let p = std::path::PathBuf::from(&article.audio_local_path);
-                        if p.is_file() { Some(p) } else { None }
-                    } else {
-                        None
-                    };
-                    let request = UploadRequest {
-                        api_key: api_key.clone(),
-                        language_code: language.clone(),
-                        collection_id,
-                        title: article.title.clone(),
-                        text: article.upload_text().to_owned(),
-                        original_url: Some(article.url.clone()),
-                        audio_path,
-                    };
-
-                    // If already on LingQ, update the existing lesson; otherwise create new
-                    let upload_result = if let Some(existing_id) = article.lingq_lesson_id {
-                        lingq.update_lesson(&request, existing_id).await
-                    } else {
-                        lingq.upload_lesson(&request).await
-                    };
-
-                    match upload_result {
-                        Ok(response) => {
-                            if article.uploaded_to_lingq {
-                                // Re-upload: lesson was updated, not newly created
+                    match upload_article_to_lingq(&lingq, &db, id, &upload_options).await {
+                        Ok(outcome) => {
+                            if outcome.updated_existing {
                                 skipped_already += 1;
                             }
-                            if let Err(err) = db.mark_uploaded(
-                                article.id,
-                                response.lesson_id,
-                                &response.lesson_url,
-                            ) {
-                                failed.push(format!(
-                                    "{} uploaded but DB update failed: {}",
-                                    article.title, err
-                                ));
-                            } else {
-                                uploaded += 1;
-                            }
+                            uploaded += 1;
                         }
-                        Err(err) => failed.push(format!("{}: {}", article.title, err)),
+                        Err(err) => {
+                            failed.push(format!("article #{id}: {err}"));
+                        }
                     }
 
                     let _ = tx.send(AppEvent::FetchProgress(FetchProgress {
@@ -948,7 +879,7 @@ impl AppState {
                             );
                             self.lq.login_cooldown_until =
                                 Some(std::time::Instant::now() + cooldown);
-                            self.set_status(&format!(
+                            self.set_status(format!(
                                 "{err} (Cooldown: {cooldown:.0?} before next attempt)"
                             ));
                         } else {
@@ -1076,27 +1007,6 @@ impl AppState {
                 return;
             }
         };
-        let Some(article) = (match self.db.get_article(article_id) {
-            Ok(a) => a,
-            Err(err) => {
-                self.set_status(format!("Transcribe db error: {err:#}"));
-                return;
-            }
-        }) else {
-            self.set_status(format!("Article #{article_id} not found"));
-            return;
-        };
-        if article.audio_local_path.trim().is_empty() {
-            self.set_status(format!(
-                "Article #{article_id} has no local audio to transcribe."
-            ));
-            return;
-        }
-        let audio_path = std::path::PathBuf::from(article.audio_local_path.clone());
-        if !audio_path.is_file() {
-            self.set_status(format!("Audio file missing: {}", audio_path.display()));
-            return;
-        }
 
         self.set_status(format!(
             "Transcribing #{article_id} with {} (this can take a while)…",
@@ -1105,29 +1015,15 @@ impl AppState {
         let db = self.db.clone();
         let cfg_for_task = cfg.clone();
         self.spawn_background(async move {
-            match crate::transcribe::transcribe_audio(&cfg_for_task, &audio_path).await {
-                Ok(text) => {
-                    let chars = text.len();
-                    if let Err(err) =
-                        db.set_transcript(article_id, &text, &cfg_for_task.source_tag())
-                    {
-                        return AppEvent::SaveFinished {
-                            message: format!(
-                                "Transcript ready ({chars} chars) but DB write failed"
-                            ),
-                            failed: vec![format!("{err:#}")],
-                            failed_urls: Vec::new(),
-                        };
-                    }
-                    AppEvent::SaveFinished {
-                        message: format!(
-                            "Saved transcript for #{article_id} ({chars} chars, {})",
-                            cfg_for_task.source_tag()
-                        ),
-                        failed: Vec::new(),
-                        failed_urls: Vec::new(),
-                    }
-                }
+            match transcribe_saved_article(&db, article_id, &cfg_for_task).await {
+                Ok(outcome) => AppEvent::SaveFinished {
+                    message: format!(
+                        "Saved transcript for #{} ({} chars, {})",
+                        outcome.article_id, outcome.chars, outcome.source
+                    ),
+                    failed: Vec::new(),
+                    failed_urls: Vec::new(),
+                },
                 Err(err) => AppEvent::SaveFinished {
                     message: format!("Transcription failed for #{article_id}"),
                     failed: vec![format!("{err:#}")],
