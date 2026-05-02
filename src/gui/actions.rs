@@ -676,7 +676,7 @@ impl AppState {
         self.runtime.spawn(async move {
             let result: Result<(usize, usize, Vec<String>, bool), String> = async {
                 let mut uploaded = 0usize;
-                let mut skipped_already = 0usize;
+                let mut updated_existing = 0usize;
                 let mut failed = Vec::new();
                 let total = ids.len();
                 // Overall time cap: 15 minutes for upload batch
@@ -696,9 +696,10 @@ impl AppState {
                     match upload_article_to_lingq(&lingq, &db, id, &upload_options).await {
                         Ok(outcome) => {
                             if outcome.updated_existing {
-                                skipped_already += 1;
+                                updated_existing += 1;
+                            } else {
+                                uploaded += 1;
                             }
-                            uploaded += 1;
                         }
                         Err(err) => {
                             failed.push(format!("article #{id}: {err}"));
@@ -713,20 +714,20 @@ impl AppState {
                 }
 
                 let cancelled = cancel.load(Ordering::Relaxed);
-                Ok((uploaded, skipped_already, failed, cancelled))
+                Ok((uploaded, updated_existing, failed, cancelled))
             }
             .await;
 
             let event = match result {
-                Ok((uploaded, skipped_already, failed, cancelled)) => AppEvent::UploadFinished {
+                Ok((uploaded, updated_existing, failed, cancelled)) => AppEvent::UploadFinished {
                     uploaded,
-                    skipped_already,
+                    updated_existing,
                     failed,
                     cancelled,
                 },
                 Err(err) => AppEvent::UploadFinished {
                     uploaded: 0,
-                    skipped_already: 0,
+                    updated_existing: 0,
                     failed: vec![err],
                     cancelled: false,
                 },
@@ -889,21 +890,18 @@ impl AppState {
                 },
                 AppEvent::UploadFinished {
                     uploaded,
-                    skipped_already,
+                    updated_existing,
                     failed,
                     cancelled,
                 } => {
                     self.progress = None;
                     self.cancel_flag.store(false, Ordering::Relaxed);
                     let prefix = if cancelled { "Cancelled. " } else { "" };
-                    let skip_suffix = if skipped_already > 0 {
-                        format!(" Skipped {skipped_already} already uploaded.")
-                    } else {
-                        String::new()
-                    };
-                    self.set_status(format!(
-                        "{prefix}Uploaded {uploaded} article(s) to LingQ.{skip_suffix}{}",
-                        format_failure_suffix(&failed)
+                    self.set_status(format_upload_status(
+                        prefix,
+                        uploaded,
+                        updated_existing,
+                        &failed,
                     ));
                     self.refresh_stats();
                     self.load_library();

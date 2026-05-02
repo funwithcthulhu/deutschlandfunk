@@ -113,7 +113,7 @@ enum AppEvent {
     LingqLoggedIn(Result<String, String>),
     UploadFinished {
         uploaded: usize,
-        skipped_already: usize,
+        updated_existing: usize,
         failed: Vec<String>,
         cancelled: bool,
     },
@@ -515,6 +515,29 @@ fn format_failure_suffix(failed: &[String]) -> String {
     format!(" {} failed: {details}{more}", failed.len())
 }
 
+fn format_upload_status(
+    prefix: &str,
+    uploaded: usize,
+    updated_existing: usize,
+    failed: &[String],
+) -> String {
+    let mut parts = Vec::new();
+    if uploaded > 0 || updated_existing == 0 {
+        parts.push(format!("Uploaded {uploaded} new article(s) to LingQ."));
+    }
+    if updated_existing > 0 {
+        parts.push(format!(
+            "Updated {updated_existing} existing LingQ lesson(s)."
+        ));
+    }
+
+    format!(
+        "{prefix}{}{}",
+        parts.join(" "),
+        format_failure_suffix(failed)
+    )
+}
+
 /// Delay between consecutive network requests to avoid overwhelming deutschlandfunk.de.
 const REQUEST_THROTTLE: tokio::time::Duration = tokio::time::Duration::from_millis(250);
 
@@ -714,6 +737,32 @@ mod tests {
         let result = format_failure_suffix(&failures);
         assert!(result.contains("5 failed"));
         assert!(result.contains("+2 more"));
+    }
+
+    // ── format_upload_status ──
+
+    #[test]
+    fn format_upload_status_new_uploads() {
+        let result = format_upload_status("", 2, 0, &[]);
+
+        assert_eq!(result, "Uploaded 2 new article(s) to LingQ.");
+    }
+
+    #[test]
+    fn format_upload_status_existing_updates() {
+        let result = format_upload_status("", 0, 1, &[]);
+
+        assert_eq!(result, "Updated 1 existing LingQ lesson(s).");
+    }
+
+    #[test]
+    fn format_upload_status_mixed_batch_with_failure() {
+        let result = format_upload_status("Cancelled. ", 1, 1, &["network".to_owned()]);
+
+        assert!(result.contains("Cancelled."));
+        assert!(result.contains("Uploaded 1 new article(s)"));
+        assert!(result.contains("Updated 1 existing LingQ lesson(s)"));
+        assert!(result.contains("1 failed"));
     }
 
     // ── index_of_label / indexed_label ──
