@@ -1,0 +1,838 @@
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct BrowseRow { title: string, teaser: string, section: string, source: string, source_label: string, url: string, selected: bool, saved: bool, has-audio-hint: bool }
+export struct BulkSectionRow { label: string, selected: bool }
+export struct LibraryRow { id: int, title: string, section: string, heading: string, date: string, words: string, difficulty: int, url: string, uploaded: bool, paywalled: bool, selected: bool, confirming-delete: bool, viewing: bool, has-audio: bool, audio-downloaded: bool, audio-duration: string }
+export struct StatCard { label: string, value: string }
+
+component Panel inherits Rectangle {
+    in property <brush> panel-background: #1f1c22;
+    in property <brush> panel-border: #3a3038;
+    background: panel-background;
+    border-color: panel-border;
+    border-width: 1px;
+    border-radius: 12px;
+}
+
+// Small text button for inline actions
+component TextBtn inherits Rectangle {
+    in property <string> label;
+    in property <brush> text-color: #f0a87a;
+    callback clicked;
+    height: 20px;
+    width: btn-text.preferred-width + 12px;
+    border-radius: 4px;
+    background: ta.has-hover ? #ffffff10 : transparent;
+    btn-text := Text { text: root.label; color: ta.has-hover ? #ffffff : root.text-color; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// Tiny preset button for date range shortcuts
+component PresetBtn inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+    height: 22px;
+    width: btn-text.preferred-width + 10px;
+    border-radius: 4px;
+    background: ta.has-hover ? #ffffff10 : transparent;
+    btn-text := Text { text: root.label; color: ta.has-hover ? #e6dcce : #b09d8d; font-size: 10px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component AppWindow inherits Window {
+    title: "Deutschlandfunk Reader";
+    icon: @image-url("../assets/deutschlandfunk.png");
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    min-width: 980px;
+    min-height: 660px;
+    background: #16141a;
+
+    in-out property <int> page-index: 0;
+    in-out property <int> browse-section-index: 0;
+    in-out property <bool> browse-only-new: true;
+    in-out property <string> browse-date-from: "";
+    in-out property <string> browse-date-to: "";
+    in-out property <string> bulk-max-articles: "60";
+    in-out property <string> bulk-per-section-cap: "30";
+    in-out property <string> bulk-stop-after-old: "12";
+    in-out property <string> library-search: "";
+    in-out property <int> library-heading-index: 0;
+    in-out property <int> library-section-index: 0;
+    in-out property <int> library-sort-index: 0;
+    in-out property <bool> library-only-not-uploaded: false;
+    in-out property <string> library-min-words: "";
+    in-out property <string> library-max-words: "";
+    in-out property <bool> show-library-filters: true;
+    in-out property <bool> show-upload-tools: true;
+    in-out property <int> lingq-collection-index: 0;
+    in-out property <string> lingq-min-words: "";
+    in-out property <string> lingq-max-words: "";
+    in-out property <bool> lingq-only-not-uploaded: true;
+    in-out property <bool> lingq-connected: false;
+    in-out property <bool> show-lingq-settings: false;
+    in-out property <bool> show-bulk-sections: false;
+    in property <string> bulk-sections-label: "Sections";
+    in-out property <string> lingq-token: "";
+    in-out property <string> lingq-username: "";
+    in-out property <string> lingq-password: "";
+    in-out property <bool> preview-wide: false;
+    in-out property <string> site-search-query: "";
+
+    in property <[string]> browse-section-labels;
+    in property <[BrowseRow]> browse-rows;
+    in property <[BulkSectionRow]> bulk-section-rows;
+    in property <[LibraryRow]> library-rows;
+    in property <[StatCard]> stat-cards;
+    in property <[string]> heading-labels;
+    in property <[string]> section-labels;
+    in property <[string]> sort-labels;
+    in property <[string]> collection-labels;
+    in property <string> status-message: "";
+    in property <string> browse-summary: "";
+    in property <string> library-summary: "";
+    in property <string> preview-title: "";
+    in property <string> preview-meta: "";
+    in property <string> preview-body: "";
+    in property <string> preview-url: "";
+    in property <bool> preview-has-article: false;
+    in property <string> progress-label: "";
+    in property <float> progress-value: 0;
+    in property <bool> progress-visible: false;
+    in property <string> browse-count: "";
+    in property <string> library-count: "";
+    in property <string> audio-count: "";
+    in-out property <bool> auto-fetch-on-startup: false;
+
+    // Audio settings (Deutschlandfunk-specific)
+    in-out property <bool> download-audio-on-fetch: true;
+    in-out property <bool> upload-audio-to-lingq: true;
+    in-out property <string> audio-dir: "";
+
+    // Whisper transcription settings (optional — leave blank to disable)
+    in-out property <string> whisper-cli-path: "";
+    in-out property <string> whisper-model-path: "";
+    in-out property <string> whisper-language: "de";
+
+    callback download-article-audio(int);
+    callback open-audio-dir();
+    callback play-article-audio(int);
+    callback reveal-article-audio(int);
+    callback retry-last-failures();
+    in property <int> last-failed-count: 0;
+    callback transcribe-article(int);
+    callback switch-page(int);
+    callback browse-refresh();
+    callback browse-load-more();
+    callback browse-toggle-article(int);
+    callback browse-select-all-new();
+    callback browse-clear-selection();
+    callback browse-save-selected();
+    callback browse-open-url(string);
+    callback browse-save-single(string);
+    callback browse-toggle-bulk-section(int);
+    callback browse-bulk-select-all();
+    callback browse-bulk-clear();
+    callback browse-run-bulk-fetch();
+    callback library-apply-filters();
+    callback library-toggle-select(int);
+    callback library-select-article(int);
+    callback library-delete-article(int);
+    callback library-open-url(string);
+    callback library-select-visible-for-upload();
+    callback library-clear-upload-selection();
+    callback library-upload-selected();
+    callback lingq-open-settings();
+    callback lingq-close-settings();
+    callback lingq-save-token();
+    callback lingq-login();
+    callback lingq-refresh-collections();
+    callback lingq-disconnect();
+    callback library-search-accepted();
+    callback browse-set-date-preset(int);
+    callback toggle-preview-width();
+    callback site-search();
+    callback cancel-operation();
+    callback library-key-up();
+    callback library-key-down();
+    callback library-key-space();
+
+    Rectangle {
+        background: #16141a;
+
+        HorizontalLayout {
+            spacing: 0px;
+
+            // ── Sidebar ──
+            Rectangle {
+                width: 210px;
+                background: #221d23;
+                border-width: 1px;
+                border-color: #382e36;
+
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+
+                    Panel {
+                        height: 48px;
+                        panel-background: #d6334a;
+                        panel-border: #d6334a;
+                        VerticalLayout {
+                            padding: 12px;
+                            Text { text: "Deutschlandfunk Reader"; color: white; font-size: 17px; font-weight: 800; }
+                        }
+                    }
+
+                    // Browse nav button with badge
+                    Panel {
+                        height: 40px;
+                        panel-background: root.page-index == 0 ? #4a2218 : (browse-nav-ta.has-hover ? #2c241f : #2a2329);
+                        panel-border: root.page-index == 0 ? #7a3a26 : #2a2329;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            alignment: center;
+                            Text { text: "Browse"; color: white; horizontal-alignment: left; vertical-alignment: center; font-size: 15px; font-weight: 700; horizontal-stretch: 1; }
+                            if root.browse-count != "" : VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: max(20px, browse-badge.preferred-width + 12px);
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: #5e2a1e;
+                                    browse-badge := Text { text: root.browse-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                        browse-nav-ta := TouchArea { mouse-cursor: pointer; clicked => { root.switch-page(0); } }
+                    }
+
+                    // Library nav button with badge
+                    Panel {
+                        height: 40px;
+                        panel-background: root.page-index == 1 ? #4a2218 : (library-nav-ta.has-hover ? #2c241f : #2a2329);
+                        panel-border: root.page-index == 1 ? #7a3a26 : #2a2329;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            alignment: center;
+                            Text { text: "Library + LingQ"; color: white; horizontal-alignment: left; vertical-alignment: center; font-size: 15px; font-weight: 700; horizontal-stretch: 1; }
+                            if root.library-count != "" : VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: max(20px, library-badge.preferred-width + 12px);
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: #5e2a1e;
+                                    library-badge := Text { text: root.library-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                        library-nav-ta := TouchArea { mouse-cursor: pointer; clicked => { root.switch-page(1); } }
+                    }
+
+                    // Audio nav button — same library view filtered to audio-bearing items
+                    Panel {
+                        height: 40px;
+                        panel-background: root.page-index == 2 ? #4a2218 : (audio-nav-ta.has-hover ? #2c241f : #2a2329);
+                        panel-border: root.page-index == 2 ? #7a3a26 : #2a2329;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            alignment: center;
+                            Text { text: "Audio"; color: white; horizontal-alignment: left; vertical-alignment: center; font-size: 15px; font-weight: 700; horizontal-stretch: 1; }
+                            if root.audio-count != "" : VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: max(20px, audio-badge.preferred-width + 12px);
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: #5e2a1e;
+                                    audio-badge := Text { text: root.audio-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                        audio-nav-ta := TouchArea { mouse-cursor: pointer; clicked => { root.switch-page(2); } }
+                    }
+
+                    Panel {
+                        height: 100px;
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 4px;
+                            Text { text: "Status"; color: #b09d8d; font-size: 12px; font-weight: 700; }
+                            Text { text: root.status-message; color: #f6efe2; wrap: word-wrap; font-size: 12px; overflow: elide; }
+                        }
+                    }
+
+                    if root.progress-visible : Panel {
+                        height: 76px;
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 6px;
+                            Text { text: root.progress-label; color: #f6efe2; font-size: 11px; wrap: word-wrap; overflow: elide; }
+                            Rectangle {
+                                height: 6px;
+                                border-radius: 999px;
+                                background: #382e36;
+                                Rectangle {
+                                    height: parent.height;
+                                    width: parent.width * root.progress-value;
+                                    animate width { duration: 300ms; easing: ease-in-out; }
+                                    border-radius: 999px;
+                                    background: #e8704a;
+                                }
+                            }
+                            HorizontalLayout {
+                                Rectangle { }
+                                cancel-btn := Rectangle {
+                                    width: cancel-text.preferred-width + 16px;
+                                    height: 22px;
+                                    border-radius: 6px;
+                                    background: cancel-ta.has-hover ? #3a1520 : #2a1018;
+                                    border-color: #e06070;
+                                    border-width: 1px;
+                                    cancel-text := Text { text: "Cancel"; color: cancel-ta.has-hover ? #ff6070 : #e06070; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                    cancel-ta := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-operation(); } }
+                                }
+                                Rectangle { }
+                            }
+                        }
+                    }
+
+                    Panel {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 4px;
+                            for stat in root.stat-cards : HorizontalLayout {
+                                spacing: 6px;
+                                Text { text: stat.label + ":"; color: #9a8e7f; font-size: 12px; font-weight: 700; width: 105px; horizontal-alignment: left; }
+                                Text { text: stat.value; color: white; font-size: 12px; font-weight: 800; horizontal-alignment: right; horizontal-stretch: 1; }
+                            }
+                        }
+                    }
+
+                    if root.last-failed-count > 0 : Button {
+                        text: "Retry " + root.last-failed-count + " failed";
+                        clicked => { root.retry-last-failures(); }
+                    }
+                    Button { text: "LingQ Settings"; clicked => { root.lingq-open-settings(); } }
+                }
+            }
+
+            // ── Main content area ──
+            Rectangle {
+                horizontal-stretch: 1;
+                background: #16141a;
+                clip: true;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 6px;
+
+                    // ════════════════════════════════════
+                    //  BROWSE PAGE
+                    // ════════════════════════════════════
+                    if root.page-index == 0 : VerticalLayout {
+                        spacing: 6px;
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+
+                        // Browse toolbar — single row
+                        Panel {
+                            height: 56px;
+                            clip: true;
+                            VerticalLayout {
+                                padding: 8px;
+                                spacing: 2px;
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    ComboBox { model: root.browse-section-labels; current-index <=> root.browse-section-index; min-width: 180px; }
+                                    CheckBox { text: "Only new"; checked <=> root.browse-only-new; }
+                                    Button { text: "Select all"; clicked => { root.browse-select-all-new(); } }
+                                    Button { text: "Clear"; clicked => { root.browse-clear-selection(); } }
+                                    Button { text: "Save selected"; clicked => { root.browse-save-selected(); } }
+                                    Rectangle { }
+                                    Button { text: "Refresh"; clicked => { root.browse-refresh(); } }
+                                    Button { text: "More"; clicked => { root.browse-load-more(); } }
+                                }
+                                Text { text: root.browse-summary; color: #bcaa9a; font-size: 11px; }
+                            }
+                        }
+
+                        // taz Search
+                        Panel {
+                            height: 40px;
+                            clip: true;
+                            HorizontalLayout {
+                                padding: 6px;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                Text { text: "Search deutschlandfunk.de"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                site-search-input := LineEdit {
+                                    text <=> root.site-search-query;
+                                    placeholder-text: "e.g. Klimawandel, Ukraine, Migration...";
+                                    horizontal-stretch: 1;
+                                    accepted => { root.site-search(); }
+                                }
+                                Button { text: "Search"; clicked => { root.site-search(); } }
+                            }
+                        }
+
+                        // Bulk Fetch
+                        Panel {
+                            height: root.show-bulk-sections ? 140px : 66px;
+                            clip: true;
+                            VerticalLayout {
+                                padding: 6px;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 5px;
+                                    Text { text: "Bulk"; color: white; font-size: 13px; font-weight: 800; vertical-alignment: center; }
+                                    Text { text: "From"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                    LineEdit { text <=> root.browse-date-from; placeholder-text: "YYYY-MM-DD"; min-width: 100px; max-width: 100px; }
+                                    Text { text: "To"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                    LineEdit { text <=> root.browse-date-to; placeholder-text: "YYYY-MM-DD"; min-width: 100px; max-width: 100px; }
+                                    Text { text: "Max"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                    LineEdit { text <=> root.bulk-max-articles; placeholder-text: "60"; min-width: 40px; max-width: 40px; }
+                                    Text { text: "Per sect"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                    LineEdit { text <=> root.bulk-per-section-cap; placeholder-text: "30"; min-width: 40px; max-width: 40px; }
+                                    Text { text: "Stop after"; color: #b09d8d; font-size: 11px; vertical-alignment: center; }
+                                    LineEdit { text <=> root.bulk-stop-after-old; placeholder-text: "12"; min-width: 36px; max-width: 36px; }
+                                    Button { text: root.bulk-sections-label; clicked => { root.show-bulk-sections = !root.show-bulk-sections; } min-width: 100px; }
+                                    Button { text: "All"; clicked => { root.browse-bulk-select-all(); } }
+                                    Button { text: "None"; clicked => { root.browse-bulk-clear(); } }
+                                    Button { text: "Fetch"; clicked => { root.browse-run-bulk-fetch(); } }
+                                    Rectangle { }
+                                }
+                                // Date preset shortcuts
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Text { text: "Quick:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    PresetBtn { label: "7d"; clicked => { root.browse-set-date-preset(0); } }
+                                    PresetBtn { label: "30d"; clicked => { root.browse-set-date-preset(1); } }
+                                    PresetBtn { label: "3mo"; clicked => { root.browse-set-date-preset(2); } }
+                                    PresetBtn { label: "This year"; clicked => { root.browse-set-date-preset(3); } }
+                                    PresetBtn { label: "Last year"; clicked => { root.browse-set-date-preset(4); } }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    CheckBox { text: "Auto-fetch on startup"; checked <=> root.auto-fetch-on-startup; }
+                                }
+                                // Audio settings (Deutschlandfunk-specific)
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { text: "Audio:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    CheckBox { text: "Download MP3 on fetch"; checked <=> root.download-audio-on-fetch; }
+                                    CheckBox { text: "Attach to LingQ upload"; checked <=> root.upload-audio-to-lingq; }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    TextBtn { label: "Open audio folder"; clicked => { root.open-audio-dir(); } }
+                                }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Text { text: "Audio dir:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    LineEdit {
+                                        text <=> root.audio-dir;
+                                        placeholder-text: "(default: app data audio folder)";
+                                        height: 26px;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                // Whisper transcription paths — optional. When both
+                                // are filled the per-row "Transcribe" button works.
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Text { text: "Whisper CLI:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    LineEdit {
+                                        text <=> root.whisper-cli-path;
+                                        placeholder-text: "C:\\Users\\Admin\\Tools\\whisper-cpp\\Release\\main.exe";
+                                        height: 26px;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Text { text: "Whisper model:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    LineEdit {
+                                        text <=> root.whisper-model-path;
+                                        placeholder-text: "C:\\Users\\Admin\\whisper-models\\ggml-medium.bin";
+                                        height: 26px;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text { text: "Lang:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
+                                    LineEdit {
+                                        text <=> root.whisper-language;
+                                        placeholder-text: "de";
+                                        height: 26px;
+                                        width: 50px;
+                                    }
+                                }
+                                if root.show-bulk-sections : Panel {
+                                    panel-background: #2a2329;
+                                    panel-border: #3e3239;
+                                    clip: true;
+                                    vertical-stretch: 1;
+                                    ScrollView {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        VerticalLayout {
+                                            padding: 4px;
+                                            spacing: 2px;
+                                            for section[index] in root.bulk-section-rows : HorizontalLayout {
+                                                height: 22px;
+                                                padding-left: 6px;
+                                                spacing: 6px;
+                                                CheckBox { checked: section.selected; toggled => { root.browse-toggle-bulk-section(index); } }
+                                                Text { text: section.label; color: #f6efe2; vertical-alignment: center; font-size: 11px; }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Browse article list
+                        Panel {
+                            horizontal-stretch: 1;
+                            vertical-stretch: 1;
+                            clip: true;
+                            ScrollView {
+                                width: parent.width;
+                                height: parent.height;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 5px;
+
+                                    // Empty state
+                                    if root.browse-rows.length == 0 : Rectangle {
+                                        height: 80px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text { text: "No articles to show."; color: #897e72; font-size: 14px; horizontal-alignment: center; }
+                                            Text { text: "Select a section and click Refresh to browse deutschlandfunk.de."; color: #6e6358; font-size: 12px; horizontal-alignment: center; }
+                                        }
+                                    }
+
+                                    for article[index] in root.browse-rows : Panel {
+                                        min-height: 72px;
+                                        panel-background: article.selected ? #43221a : #2a2329;
+                                        panel-border: article.selected ? #e8704a : #3a3038;
+                                        border-radius: 8px;
+                                        HorizontalLayout {
+                                            padding: 8px;
+                                            spacing: 8px;
+                                            CheckBox { checked: article.selected; toggled => { root.browse-toggle-article(index); } }
+                                            VerticalLayout {
+                                                horizontal-stretch: 1;
+                                                spacing: 2px;
+                                                // Title row with metadata inline
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    Text { text: article.title; color: white; font-size: 14px; font-weight: 750; horizontal-stretch: 1; overflow: elide; }
+                                                    Text { text: article.section; color: #a89786; font-size: 11px; vertical-alignment: center; }
+                                                    Text { text: article.saved ? "Saved" : "New"; color: article.saved ? #7ce2a4 : #ffb6c1; font-size: 11px; vertical-alignment: center; }
+                                                }
+                                                Text { text: article.teaser; color: #b09d8d; font-size: 12px; wrap: word-wrap; }
+                                            }
+                                            // Compact action column
+                                            VerticalLayout {
+                                                spacing: 2px;
+                                                alignment: center;
+                                                TextBtn { label: "Open"; clicked => { root.browse-open-url(article.url); } }
+                                                TextBtn { label: article.saved ? "Resave" : "Save"; clicked => { root.browse-save-single(article.url); } }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ════════════════════════════════════
+                    //  LIBRARY + LINGQ PAGE
+                    // ════════════════════════════════════
+                    if root.page-index == 1 || root.page-index == 2 : VerticalLayout {
+                        spacing: 6px;
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+
+                        // Library filters — always visible, single row
+                        Panel {
+                            height: 38px;
+                            HorizontalLayout {
+                                padding: 6px;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 5px;
+                                Text { text: "Filters"; color: #b09d8d; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+                                LineEdit { text <=> root.library-search; placeholder-text: "Search (Enter to apply)"; min-width: 160px; accepted => { root.library-search-accepted(); } }
+                                ComboBox { model: root.heading-labels; current-index <=> root.library-heading-index; min-width: 110px; }
+                                ComboBox { model: root.section-labels; current-index <=> root.library-section-index; min-width: 110px; }
+                                ComboBox { model: root.sort-labels; current-index <=> root.library-sort-index; min-width: 90px; max-width: 90px; }
+                                LineEdit { text <=> root.library-min-words; placeholder-text: "Min words"; min-width: 72px; max-width: 72px; }
+                                LineEdit { text <=> root.library-max-words; placeholder-text: "Max words"; min-width: 72px; max-width: 72px; }
+                                CheckBox { text: "Not uploaded"; checked <=> root.library-only-not-uploaded; }
+                                Button { text: "Apply"; clicked => { root.library-apply-filters(); } }
+                                Rectangle { }
+                            }
+                        }
+
+                        // LingQ upload — always visible, single row
+                        Panel {
+                            height: 38px;
+                            HorizontalLayout {
+                                padding: 6px;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 5px;
+                                Text { text: "LingQ"; color: #b09d8d; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+                                Rectangle {
+                                    width: conn-label.preferred-width + 18px;
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: root.lingq-connected ? #1a3328 : #33202a;
+                                    conn-label := Text {
+                                        text: root.lingq-connected ? "Connected" : "Disconnected";
+                                        color: root.lingq-connected ? #7ce2a4 : #e06070;
+                                        font-size: 10px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                ComboBox { model: root.collection-labels; current-index <=> root.lingq-collection-index; min-width: 180px; }
+                                LineEdit { text <=> root.lingq-min-words; placeholder-text: "Min words"; min-width: 72px; max-width: 72px; }
+                                LineEdit { text <=> root.lingq-max-words; placeholder-text: "Max words"; min-width: 72px; max-width: 72px; }
+                                CheckBox { text: "Not uploaded"; checked <=> root.lingq-only-not-uploaded; }
+                                Button { text: "Select visible"; clicked => { root.library-select-visible-for-upload(); } }
+                                Button { text: "Clear"; clicked => { root.library-clear-upload-selection(); } }
+                                Button { text: "Upload"; clicked => { root.library-upload-selected(); } }
+                                Rectangle { }
+                                Button { text: "Settings"; clicked => { root.lingq-open-settings(); } min-width: 60px; }
+                            }
+                        }
+
+                        Text { text: root.library-summary; color: #bcaa9a; font-size: 11px; }
+
+                        // Library article list + preview split
+                        HorizontalLayout {
+                            horizontal-stretch: 1;
+                            vertical-stretch: 1;
+                            spacing: 6px;
+
+                            // Article list
+                            Panel {
+                                horizontal-stretch: 1;
+                                vertical-stretch: 1;
+                                clip: true;
+                                library-focus := FocusScope {
+                                    key-pressed(event) => {
+                                        if (event.text == Key.UpArrow) {
+                                            root.library-key-up();
+                                            return accept;
+                                        }
+                                        if (event.text == Key.DownArrow) {
+                                            root.library-key-down();
+                                            return accept;
+                                        }
+                                        if (event.text == " ") {
+                                            root.library-key-space();
+                                            return accept;
+                                        }
+                                        return reject;
+                                    }
+                                }
+                                // Click anywhere in the list to grab focus
+                                TouchArea { clicked => { library-focus.focus(); } }
+                                ScrollView {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        spacing: 4px;
+
+                                        // Empty state
+                                        if root.library-rows.length == 0 : Rectangle {
+                                            height: 80px;
+                                            VerticalLayout {
+                                                alignment: center;
+                                                Text { text: "No saved articles."; color: #897e72; font-size: 14px; horizontal-alignment: center; }
+                                                Text { text: "Browse and save articles from the Browse page."; color: #6e6358; font-size: 12px; horizontal-alignment: center; }
+                                            }
+                                        }
+
+                                        for article[index] in root.library-rows : Panel {
+                                            min-height: 48px;
+                                            panel-background: article.viewing ? #3a1f18 : (article.selected ? #43221a : #2a2329);
+                                            panel-border: article.viewing ? #c5573a : (article.selected ? #e8704a : #3a3038);
+                                            border-radius: 8px;
+                                            HorizontalLayout {
+                                                padding: 6px;
+                                                spacing: 6px;
+                                                // Viewing accent bar
+                                                if article.viewing : Rectangle {
+                                                    width: 3px;
+                                                    border-radius: 2px;
+                                                    background: #e8704a;
+                                                }
+                                                CheckBox { checked: article.selected; toggled => { root.library-toggle-select(index); } }
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                    VerticalLayout {
+                                                        spacing: 1px;
+                                                        HorizontalLayout {
+                                                            spacing: 8px;
+                                                            Text { text: article.title; color: white; font-size: 13px; font-weight: 760; horizontal-stretch: 1; overflow: elide; }
+                                                            Text { text: article.words + "w"; color: #a89786; font-size: 11px; vertical-alignment: center; }
+                                                            Rectangle {
+                                                                width: 22px; height: 16px; border-radius: 4px;
+                                                                background: article.difficulty <= 1 ? #2d6a4f : article.difficulty == 2 ? #40916c : article.difficulty == 3 ? #e9c46a : article.difficulty == 4 ? #e76f51 : #d62828;
+                                                                Text { text: article.difficulty; color: article.difficulty <= 2 ? white : article.difficulty == 3 ? #1a1a2e : white; font-size: 10px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                                            }
+                                                            Text { text: article.date; color: #a89786; font-size: 11px; vertical-alignment: center; }
+                                                            if article.paywalled : Text { text: "Paywall"; color: #e76f51; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                                                            Text { text: article.uploaded ? "LingQ" : "Local"; color: article.uploaded ? #7ce2a4 : #bcaa9a; font-size: 11px; vertical-alignment: center; }
+                                                            // Audio status badge — only shown when audio is attached
+                                                            if article.has-audio : Text {
+                                                                text: article.audio-downloaded
+                                                                    ? "♪ " + article.audio-duration
+                                                                    : "♪ " + article.audio-duration + " (not downloaded)";
+                                                                color: article.audio-downloaded ? #e8704a : #897e72;
+                                                                font-size: 11px;
+                                                                vertical-alignment: center;
+                                                            }
+                                                        }
+                                                        Text { text: article.section; color: #a89786; font-size: 11px; }
+                                                    }
+                                                    TouchArea { mouse-cursor: pointer; clicked => { root.library-select-article(index); } }
+                                                }
+                                                // Compact inline actions
+                                                VerticalLayout {
+                                                    spacing: 1px;
+                                                    alignment: center;
+                                                    TextBtn { label: "Open"; clicked => { root.library-open-url(article.url); } }
+                                                    if article.has-audio && !article.audio-downloaded : TextBtn {
+                                                        label: "Get audio";
+                                                        clicked => { root.download-article-audio(article.id); }
+                                                    }
+                                                    if article.has-audio && article.audio-downloaded : TextBtn {
+                                                        label: "Play";
+                                                        clicked => { root.play-article-audio(article.id); }
+                                                    }
+                                                    if article.has-audio && article.audio-downloaded : TextBtn {
+                                                        label: "Reveal";
+                                                        clicked => { root.reveal-article-audio(article.id); }
+                                                    }
+                                                    if article.has-audio && article.audio-downloaded : TextBtn {
+                                                        label: "Transcribe";
+                                                        clicked => { root.transcribe-article(article.id); }
+                                                    }
+                                                    TextBtn {
+                                                        label: article.confirming-delete ? "Sure?" : "Delete";
+                                                        text-color: article.confirming-delete ? #ff4455 : #e06070;
+                                                        clicked => { root.library-delete-article(index); }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Preview pane
+                            Panel {
+                                width: root.preview-wide ? 520px : 380px;
+                                animate width { duration: 200ms; easing: ease-in-out; }
+                                vertical-stretch: 1;
+                                VerticalLayout {
+                                    padding: 10px;
+                                    spacing: 6px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        Text { text: root.preview-has-article ? root.preview-title : "Reading pane"; color: white; font-size: 16px; font-weight: 800; wrap: word-wrap; horizontal-stretch: 1; }
+                                        TextBtn {
+                                            label: root.preview-wide ? "Narrow" : "Wide";
+                                            text-color: #897e72;
+                                            clicked => { root.toggle-preview-width(); }
+                                        }
+                                    }
+                                    Text { text: root.preview-has-article ? root.preview-meta : "Select a saved article to preview."; color: #bcaa9a; wrap: word-wrap; font-size: 12px; }
+                                    if root.preview-has-article : Button { text: "Open original"; clicked => { root.library-open-url(root.preview-url); } max-width: 140px; }
+                                    Panel {
+                                        panel-background: #2a2329;
+                                        panel-border: #3e3239;
+                                        vertical-stretch: 1;
+                                        clip: true;
+                                        ScrollView {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            viewport-width: self.width;
+                                            VerticalLayout {
+                                                padding: 10px;
+                                                Text {
+                                                    text: root.preview-body;
+                                                    color: #f6efe2;
+                                                    wrap: word-wrap;
+                                                    font-size: 13px;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── LingQ Settings Modal ──
+        if root.show-lingq-settings : Rectangle {
+            background: #00000088;
+            // Backdrop click-to-close
+            TouchArea {
+                clicked => { root.lingq-close-settings(); }
+            }
+            HorizontalLayout {
+                Rectangle { }
+                Panel {
+                    width: 480px;
+                    height: 460px;
+                    y: 48px;
+                    panel-background: #231f26;
+                    panel-border: #3a3038;
+                    // Block clicks from propagating to backdrop
+                    TouchArea { }
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            Text { text: "LingQ Settings"; color: white; font-size: 22px; font-weight: 800; }
+                            Rectangle { }
+                            Button { text: "Close"; clicked => { root.lingq-close-settings(); } }
+                        }
+                        Text { text: "Use a token or log in with your LingQ account to refresh courses."; color: #bcaa9a; wrap: word-wrap; font-size: 13px; }
+                        Text { text: "API token"; color: #ede0d0; font-size: 13px; }
+                        LineEdit { text <=> root.lingq-token; input-type: password; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button { text: "Save token"; clicked => { root.lingq-save-token(); } }
+                            Button { text: "Refresh courses"; clicked => { root.lingq-refresh-collections(); } }
+                            Button { text: "Disconnect"; clicked => { root.lingq-disconnect(); } }
+                        }
+                        Rectangle { height: 1px; background: #3a3038; }
+                        Text { text: "Username or email"; color: #ede0d0; font-size: 13px; }
+                        LineEdit { text <=> root.lingq-username; }
+                        Text { text: "Password"; color: #ede0d0; font-size: 13px; }
+                        LineEdit { text <=> root.lingq-password; input-type: password; }
+                        Button { text: "Log in and save token"; clicked => { root.lingq-login(); } }
+                    }
+                }
+                Rectangle { }
+            }
+        }
+    }
+}

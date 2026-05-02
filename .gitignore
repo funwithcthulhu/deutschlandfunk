@@ -1,0 +1,8 @@
+/target
+/installer/output/
+/.idea/
+/.vscode/
+*.log
+*.orig
+.DS_Store
+Thumbs.db

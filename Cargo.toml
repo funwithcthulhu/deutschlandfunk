@@ -1,0 +1,36 @@
+[package]
+name = "deutschlandfunk_lingq_tool"
+version = "1.0.0"
+edition = "2024"
+build = "build.rs"
+description = "Desktop app and CLI for collecting Deutschlandfunk articles and uploading them to LingQ."
+readme = "README.md"
+repository = "https://github.com/funwithcthulhu/deutschlandfunk"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["alloc", "std", "clock"] }
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
+env_logger = "0.11"
+futures-util = "0.3"
+log = "0.4"
+regex = "1.11"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "stream", "multipart"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "io-util", "process"] }
+rusqlite = "0.37"
+scraper = "0.24"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+slint = "1.8"
+urlencoding = "2.1"
+webbrowser = "1.0"
+
+[build-dependencies]
+slint-build = "1.8"
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
