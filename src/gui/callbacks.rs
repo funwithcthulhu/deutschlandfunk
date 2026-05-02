@@ -94,6 +94,11 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
     });
 
     let state_clone = state.clone();
+    window.on_backup_database(move || {
+        state_clone.borrow_mut().backup_database();
+    });
+
+    let state_clone = state.clone();
     window.on_play_article_audio(move |id| {
         state_clone.borrow().play_article_audio(id as i64);
     });

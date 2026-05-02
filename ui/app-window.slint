@@ -116,6 +116,7 @@ export component AppWindow inherits Window {
 
     callback download-article-audio(int);
     callback open-audio-dir();
+    callback backup-database();
     callback play-article-audio(int);
     callback reveal-article-audio(int);
     callback retry-last-failures();
@@ -430,6 +431,7 @@ export component AppWindow inherits Window {
                                     CheckBox { text: "Attach to LingQ upload"; checked <=> root.upload-audio-to-lingq; }
                                     Rectangle { horizontal-stretch: 1; }
                                     TextBtn { label: "Open audio folder"; clicked => { root.open-audio-dir(); } }
+                                    TextBtn { label: "Backup DB"; clicked => { root.backup-database(); } }
                                 }
                                 HorizontalLayout {
                                     spacing: 4px;

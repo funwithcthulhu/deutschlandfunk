@@ -997,6 +997,36 @@ impl AppState {
         }
     }
 
+    pub(super) fn backup_database(&mut self) {
+        self.set_status("Backing up library database...");
+        let db = self.db.clone();
+        self.spawn_background(async move {
+            let result = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                let path = crate::app_data_dir()?
+                    .join("backups")
+                    .join(format!("deutschlandfunk_lingq_tool-{stamp}.db"));
+                db.backup_to(&path)?;
+                Ok(path.display().to_string())
+            })
+            .await
+            .unwrap_or_else(|err| Err(anyhow::anyhow!("{err}")));
+
+            match result {
+                Ok(path) => AppEvent::SaveFinished {
+                    message: format!("Database backup written to {path}"),
+                    failed: Vec::new(),
+                    failed_urls: Vec::new(),
+                },
+                Err(err) => AppEvent::SaveFinished {
+                    message: "Database backup failed".to_owned(),
+                    failed: vec![format!("{err:#}")],
+                    failed_urls: Vec::new(),
+                },
+            }
+        });
+    }
+
     /// Spawn a Whisper transcription job for an article's local MP3.
     /// Stores the result on the article record on success.
     pub(super) fn transcribe_article(&mut self, article_id: i64) {
