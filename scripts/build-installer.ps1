@@ -1,4 +1,4 @@
-# build-installer.ps1 — Build a release binary and Inno Setup installer for Deutschlandfunk Reader
+# build-installer.ps1 - Build a release binary and Inno Setup installer for DLF LingQ Reader
 #
 # Prerequisites (one-time setup):
 #   1. Install Rust:         https://rustup.rs
@@ -8,7 +8,7 @@
 #   .\scripts\build-installer.ps1
 #
 # Output:
-#   installer\output\deutschlandfunk-reader-setup.exe
+#   installer\output\dlf-lingq-reader-setup.exe
 
 $ErrorActionPreference = "Stop"
 
@@ -27,7 +27,7 @@ if (-not $iscc) {
     exit 1
 }
 
-Write-Host "=== Building Deutschlandfunk Reader release binary ===" -ForegroundColor Cyan
+Write-Host "=== Building DLF LingQ Reader release binary ===" -ForegroundColor Cyan
 cargo build --release
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
@@ -37,10 +37,10 @@ Write-Host "Using: $iscc"
 & $iscc "installer\deutschlandfunk-reader.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
-$exe = Get-Item "installer\output\deutschlandfunk-reader-setup.exe"
+$exe = Get-Item "installer\output\dlf-lingq-reader-setup.exe"
 Write-Host ""
 Write-Host "=== Done! ===" -ForegroundColor Green
 Write-Host "Installer: $($exe.FullName)" -ForegroundColor Yellow
 Write-Host "File size: $([math]::Round($exe.Length / 1MB, 1)) MB"
 Write-Host ""
-Write-Host "Double-click deutschlandfunk-reader-setup.exe to install." -ForegroundColor Gray
+Write-Host "Double-click dlf-lingq-reader-setup.exe to install." -ForegroundColor Gray

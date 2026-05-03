@@ -382,7 +382,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         lingq: lingq_client,
         dirty: DirtyFlags::all(),
         current_view,
-        status_message: "Loading deutschlandfunk sections, library, and LingQ status.".to_owned(),
+        status_message: "Loading DLF sections, library, and LingQ status.".to_owned(),
         stats: None,
         progress: None,
         save_progress: None,

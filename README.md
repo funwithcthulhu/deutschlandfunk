@@ -1,169 +1,123 @@
-# Deutschlandfunk Reader
+# DLF LingQ Reader
 
-Desktop app and CLI for discovering articles from `deutschlandfunk.de`,
-saving them into a local library, downloading their audio, and uploading
-text + audio to LingQ as lessons.
+[![CI](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml)
 
-Many Deutschlandfunk pages are primarily *audio* pieces, so the
-scraper extracts the MP3 URL alongside the text and the app can both
-download the file locally and attach it to the LingQ lesson on upload.
+Unofficial Windows-first desktop app and CLI for collecting articles and MP3
+audio from `deutschlandfunk.de`, keeping them in a local SQLite library, and
+turning them into LingQ lessons.
 
-## Highlights
+This project is not affiliated with, endorsed by, or sponsored by
+Deutschlandradio, Deutschlandfunk, or LingQ.
 
-- Browse built-in Deutschlandfunk sections (Nachrichten, Hintergrund,
-  Interview, Forschung aktuell, Kultur heute, Hörspiel, Essay, …) and load
-  more candidates per section.
-- Search across the public `deutschlandfunk.de/suche/` endpoint.
-- Auto-fetch recent articles on startup if you enable it in the GUI.
-- Save articles locally with metadata, clean text, word counts, and the
-  associated audio metadata (URL, duration, file size, kicker, sophora id).
-- Download the MP3 to a configurable folder; default is the app data dir.
-- Optionally transcribe downloaded MP3s via `whisper.cpp` and prefer that
-  transcript for LingQ uploads and reading preview.
-- Filter the library by heading, section, upload status, and word count.
-- Preview cleaned article text before uploading.
-- Upload selected articles to a LingQ course/collection. When the local
-  MP3 is present and the *Attach to LingQ upload* setting is on, the audio
-  is sent in the same multipart request so the lesson has playable audio.
-- Save LingQ credentials/settings in the local app data area.
+## What It Does
+
+- Browse built-in Deutschlandfunk sections and save selected articles.
+- Search `deutschlandfunk.de/suche/` from the app.
+- Keep a local library with title, metadata, cleaned text, word count, audio
+  metadata, transcripts, and LingQ upload state.
+- Download article MP3 files into a configurable local folder.
+- Optionally transcribe downloaded audio with `whisper.cpp`.
+- Upload text-only or text-plus-audio lessons to LingQ.
+- Update existing LingQ lessons in place instead of creating duplicates.
+- Back up the SQLite database from the GUI or CLI.
 - Build a Windows installer with Inno Setup.
 
-## Tech Stack
+## Naming And Compatibility
 
-- Rust 2024
-- Slint for the desktop UI
-- Tokio + Reqwest for async networking and streaming MP3 downloads
-- Scraper + Regex + serde_json for HTML and `js-client-queries` JSON extraction
-- Rusqlite for the local library
-- Inno Setup for the Windows installer
+The public project name is **DLF LingQ Reader** and the intended GitHub repo
+name is `dlf-lingq-reader`.
 
-## Running The App
+For compatibility, the Rust package, executable, and app-data directory remain:
 
-Launch the GUI:
-
-```powershell
-cargo run -- gui
+```text
+deutschlandfunk_lingq_tool
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\
 ```
 
-Or just:
+Do not rename those lightly. They are how existing installations find the
+current database, settings, audio folder, and LingQ token.
+
+## Quick Start
+
+Run the GUI from source:
 
 ```powershell
 cargo run
 ```
 
-## CLI Commands
+Or explicitly:
 
 ```powershell
-# List built-in section shortcuts
+cargo run -- gui
+```
+
+The first useful flow is:
+
+1. Open the app.
+2. Choose a Browse section and click Refresh.
+3. Save a few articles into the library.
+4. Open Library + LingQ.
+5. Log in to LingQ or paste a token.
+6. Pick a LingQ course and upload selected articles.
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full GUI workflow.
+
+## CLI Examples
+
+```powershell
+# List built-in Deutschlandfunk section shortcuts
 cargo run -- sections
 
-# Browse a built-in Deutschlandfunk section
+# Browse a built-in section
 cargo run -- browse --section nachrichten --limit 15
 
-# Browse an arbitrary Deutschlandfunk URL directly
+# Browse an arbitrary Deutschlandfunk URL
 cargo run -- browse-url --url https://www.deutschlandfunk.de/hintergrund-100.html --limit 15
 
-# Fetch a single article and print the cleaned text
+# Fetch one article and print cleaned text
 cargo run -- fetch --url https://www.deutschlandfunk.de/<slug>-100.html
 
-# Fetch and also save it into the local library
-cargo run -- fetch --url https://www.deutschlandfunk.de/<slug>-100.html --save
-
-# Same, but also download the MP3 audio
+# Fetch, save, and download MP3 audio when available
 cargo run -- fetch --url https://www.deutschlandfunk.de/<slug>-100.html --save --with-audio
 
-# Just download the audio for an article
+# Download only the article audio
 cargo run -- audio --url https://www.deutschlandfunk.de/<slug>-100.html
 
-# Show saved articles (♪ marks rows that have audio)
+# Show saved articles
 cargo run -- library --limit 20
 
-# Upload a saved article to LingQ (text only)
+# Upload a saved article to LingQ
 cargo run -- upload --id 1 --api-key YOUR_LINGQ_API_KEY
 
-# Upload with audio attached as a multipart `audio` field
+# Upload with local audio attached
 cargo run -- upload --id 1 --api-key YOUR_LINGQ_API_KEY --with-audio
 
-# Print local app paths, DB stats, and LingQ token presence
+# Show paths, settings, token presence, and library stats
 cargo run -- doctor
-
-# Same diagnostics as machine-readable JSON
 cargo run -- doctor --json
 
-# Write a SQLite-safe database backup (defaults to app data backups/)
+# Create a SQLite-safe database backup
 cargo run -- backup
 
-# Transcribe a saved article's local MP3 with whisper.cpp
+# Transcribe a downloaded MP3 with whisper.cpp
 cargo run -- transcribe --id 1
 ```
 
-## LingQ Authentication
-
-The app supports multiple ways to get a LingQ token:
-
-- pass `--api-key` on the CLI
-- set `LINGQ_API_KEY`
-- save a token in the GUI settings
-- log in from the GUI and let the app save the token locally
-
-## Local Storage
-
-App data is stored under:
-
-`%LOCALAPPDATA%\deutschlandfunk_lingq_tool\`
-
-That includes:
-
-- the SQLite database (`deutschlandfunk_lingq_tool.db`)
-- database backups (`backups/*.db`) when created via `cargo run -- backup`
-- GUI/settings data (`settings.json`)
-- saved LingQ token information (`lingq_token`)
-- downloaded audio files (`audio/<sophora-id-or-slug>.mp3`) — unless you
-  point `audio_dir` somewhere else in settings
-- Whisper transcript text + model/source tags inside the SQLite database
-
-## Project Layout
-
-```text
-src/
-  audio.rs                Audio path helpers + size/duration formatting
-  database.rs             SQLite storage and queries (now with audio columns)
-  deutschlandfunk.rs      deutschlandfunk.de discovery, article + audio extraction
-  gui/                    Slint GUI state, callbacks, actions, sync
-  lingq.rs                LingQ login, course listing, upload (with audio multipart)
-  lib.rs                  Module declarations + app data directory helper
-  main.rs                 CLI subcommands + GUI entry point
-  settings.rs             Persistent app settings (incl. audio_dir, toggles)
-  services/               Reusable ingest, upload, and transcription workflows
-  transcribe.rs           Optional whisper.cpp integration for local transcripts
-tests/
-  fixtures/               Offline parser fixtures for scraper regression tests
-ui/
-  app-window.slint        Main Slint UI definition
-assets/
-  deutschlandfunk.ico     Embedded Windows app icon
-  deutschlandfunk.png     Slint window/taskbar icon
-installer/
-  deutschlandfunk-reader.iss   Inno Setup installer definition
-scripts/
-  build-installer.ps1     Release + installer build helper
-```
-
-## Building
-
-Debug build:
+## Build And Test
 
 ```powershell
-cargo build
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-Release build:
+Build a release binary:
 
 ```powershell
 cargo build --release
 ```
 
-## Building The Windows Installer
+## Windows Installer
 
 One-time prerequisite:
 
@@ -171,7 +125,7 @@ One-time prerequisite:
 winget install JRSoftware.InnoSetup
 ```
 
-Then build the installer:
+Build the installer:
 
 ```powershell
 .\scripts\build-installer.ps1
@@ -179,14 +133,50 @@ Then build the installer:
 
 Expected output:
 
-`installer\output\deutschlandfunk-reader-setup.exe`
+```text
+installer\output\dlf-lingq-reader-setup.exe
+```
 
-## Notes
+The installer display name is `DLF LingQ Reader`. The executable inside the
+installer remains `deutschlandfunk_lingq_tool.exe` for compatibility.
 
-- The executable embeds the Deutschlandfunk app icon on Windows via
-  `build.rs`, while the Slint window uses `assets/deutschlandfunk.png`.
-- The release binary is configured to hide the console window on Windows.
-- The app is designed as a native desktop executable, not a local web server.
-- Many Deutschlandfunk pieces have only a short text intro and rely on the
-  audio for their full content. The library marks those as `paywalled`
-  (used purely as a "truncated" flag) so the GUI can surface them.
+## Documentation
+
+- [User guide](docs/USER_GUIDE.md)
+- [Development guide](docs/DEVELOPMENT.md)
+- [Database and storage](docs/DATABASE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+
+## Project Layout
+
+```text
+src/
+  audio.rs                Audio path helpers and size/duration formatting
+  database.rs             SQLite storage, migrations, backup, export, search
+  deutschlandfunk.rs      deutschlandfunk.de discovery and article extraction
+  deutschlandfunk/        Parser modules, selectors, sections, models
+  gui/                    Slint GUI state, callbacks, actions, sync
+  lingq.rs                LingQ login, course listing, upload/update client
+  main.rs                 CLI subcommands and GUI entry point
+  services/               Ingest, upload, and transcription workflows
+  settings.rs             Persistent app settings and LingQ token storage
+  transcribe.rs           Optional whisper.cpp integration
+tests/
+  fixtures/               Offline parser fixtures
+ui/
+  app-window.slint        Main Slint UI
+assets/
+  deutschlandfunk.ico     Embedded Windows app icon
+  deutschlandfunk.png     Window/taskbar icon
+installer/
+  deutschlandfunk-reader.iss   Inno Setup definition
+scripts/
+  build-installer.ps1     Release and installer build helper
+```
+
+## License
+
+No open-source license has been selected yet. See [LICENSE](LICENSE).

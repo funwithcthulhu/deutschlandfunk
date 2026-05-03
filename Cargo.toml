@@ -3,9 +3,10 @@ name = "deutschlandfunk_lingq_tool"
 version = "1.0.0"
 edition = "2024"
 build = "build.rs"
-description = "Desktop app and CLI for collecting Deutschlandfunk articles and uploading them to LingQ."
+description = "Unofficial desktop app and CLI for turning Deutschlandfunk articles and audio into LingQ lessons."
 readme = "README.md"
-repository = "https://github.com/funwithcthulhu/deutschlandfunk"
+repository = "https://github.com/funwithcthulhu/dlf-lingq-reader"
+homepage = "https://github.com/funwithcthulhu/dlf-lingq-reader"
 
 [dependencies]
 anyhow = "1.0"

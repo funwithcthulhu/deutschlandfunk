@@ -17,9 +17,9 @@ use deutschlandfunk_lingq_tool::{
 use log::info;
 
 #[derive(Parser)]
-#[command(name = "deutschlandfunk-lingq")]
+#[command(name = "dlf-lingq-reader")]
 #[command(
-    about = "Fetch deutschlandfunk.de articles (and their audio), store them locally, and upload them to LingQ."
+    about = "Unofficially collect Deutschlandfunk articles and audio, store them locally, and upload them to LingQ."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -380,8 +380,8 @@ fn run_doctor(json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!("Deutschlandfunk Reader — doctor report");
-    println!("======================================");
+    println!("DLF LingQ Reader - doctor report");
+    println!("=================================");
 
     match app_data_dir() {
         Ok(p) => println!("App data dir:     {}", p.display()),

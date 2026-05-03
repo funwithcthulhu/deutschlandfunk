@@ -1,4 +1,4 @@
-; Deutschlandfunk Reader — Inno Setup installer script
+; DLF LingQ Reader - Inno Setup installer script
 ;
 ; Prerequisites:
 ;   1. Install Inno Setup:  winget install JRSoftware.InnoSetup
@@ -6,9 +6,9 @@
 ;   3. Compile installer:   iscc installer\deutschlandfunk-reader.iss
 ;      (or right-click this file → Compile in Inno Setup)
 ;
-; Output: installer\output\deutschlandfunk-reader-setup.exe
+; Output: installer\output\dlf-lingq-reader-setup.exe
 
-#define MyAppName "Deutschlandfunk Reader"
+#define MyAppName "DLF LingQ Reader"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Tom Boeding"
 #define MyAppExeName "deutschlandfunk_lingq_tool.exe"
@@ -23,7 +23,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=output
-OutputBaseFilename=deutschlandfunk-reader-setup
+OutputBaseFilename=dlf-lingq-reader-setup
 SetupIconFile=..\assets\deutschlandfunk.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
