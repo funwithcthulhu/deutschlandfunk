@@ -20,6 +20,8 @@ Deutschlandradio, Deutschlandfunk, or LingQ.
 - Upload text-only or text-plus-audio lessons to LingQ.
 - Update existing LingQ lessons in place instead of creating duplicates.
 - Back up the SQLite database from the GUI.
+- View local database/app health, optimize SQLite, and export redacted
+  diagnostics.
 - Build a Windows installer with Inno Setup.
 
 ## Naming And Compatibility
@@ -96,8 +98,15 @@ installer remains `deutschlandfunk_lingq_tool.exe` for compatibility.
 ## Documentation
 
 - [User guide](docs/USER_GUIDE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Design decisions](docs/DECISIONS.md)
+- [Processing pipeline](docs/PROCESSING.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Database and storage](docs/DATABASE.md)
+- [Privacy](docs/PRIVACY.md)
+- [Limitations](docs/LIMITATIONS.md)
+- [Release checklist](docs/RELEASE.md)
+- [Screenshots](docs/SCREENSHOTS.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
@@ -109,9 +118,11 @@ installer remains `deutschlandfunk_lingq_tool.exe` for compatibility.
 src/
   audio.rs                Audio path helpers and size/duration formatting
   database.rs             SQLite storage, migrations, backup, export, search
+  diagnostics.rs          Redacted health reports and diagnostics bundles
   deutschlandfunk.rs      deutschlandfunk.de discovery and article extraction
   deutschlandfunk/        Parser modules, selectors, sections, models
   gui/                    Slint GUI state, callbacks, actions, sync
+  ids.rs                  Typed database identifiers
   lingq.rs                LingQ login, course listing, upload/update client
   main.rs                 GUI entry point
   services/               Ingest, upload, and transcription workflows

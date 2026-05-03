@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use deutschlandfunk_lingq_tool::gui;
 use log::info;
 
@@ -10,5 +10,5 @@ fn main() -> Result<()> {
         .init();
 
     info!("DLF LingQ Reader starting");
-    gui::run().map_err(|err| anyhow!("failed to launch GUI: {err}"))
+    gui::run()
 }

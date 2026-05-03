@@ -1,4 +1,4 @@
-use crate::deutschlandfunk::Article;
+use crate::{deutschlandfunk::Article, ids::ArticleId};
 use anyhow::{Context, Result};
 use log::{debug, info};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -144,6 +144,19 @@ pub struct LibraryStats {
     pub uploaded_articles: i64,
     pub average_word_count: i64,
     pub sections: Vec<SectionCount>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DatabaseHealth {
+    pub schema_version: i64,
+    pub migration_count: i64,
+    pub journal_mode: String,
+    pub foreign_keys_enabled: bool,
+    pub integrity_check: String,
+    pub page_count: i64,
+    pub freelist_count: i64,
+    pub database_size_bytes: Option<u64>,
+    pub latest_backup: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -505,6 +518,10 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub fn get_article_by_id(&self, id: ArticleId) -> Result<Option<StoredArticle>> {
+        self.get_article(id.get())
+    }
+
     pub fn get_all_article_urls(&self) -> Result<HashSet<String>> {
         let conn = self.read()?;
         let mut stmt = conn.prepare("SELECT url FROM articles")?;
@@ -516,7 +533,7 @@ impl Database {
     pub fn mark_uploaded(&self, id: i64, lesson_id: i64, lesson_url: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
-            "UPDATE articles SET uploaded_to_lingq = 1, lingq_lesson_id = ?1, lingq_lesson_url = ?2 WHERE id = ?3",
+            "UPDATE articles SET uploaded_to_lingq = 1, lingq_lesson_id = ?1, lingq_lesson_url = ?2, lingq_upload_status = 'succeeded', lingq_upload_error = '', lingq_upload_attempted_at = CURRENT_TIMESTAMP WHERE id = ?3",
             params![lesson_id, lesson_url, id],
         )?;
         conn.execute(
@@ -525,6 +542,43 @@ impl Database {
             VALUES (?1, ?2, ?3)
             "#,
             params![id, lesson_id, lesson_url],
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO sync_events (event_kind, article_id, status, message)
+            VALUES ('lingq_upload', ?1, 'succeeded', ?2)
+            "#,
+            params![id, format!("lesson_id={lesson_id}")],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_uploaded_by_id(
+        &self,
+        id: ArticleId,
+        lesson_id: i64,
+        lesson_url: &str,
+    ) -> Result<()> {
+        self.mark_uploaded(id.get(), lesson_id, lesson_url)
+    }
+
+    pub fn set_upload_status(
+        &self,
+        id: ArticleId,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE articles SET lingq_upload_status = ?1, lingq_upload_error = ?2, lingq_upload_attempted_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            params![status, error.unwrap_or_default(), id.get()],
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO sync_events (event_kind, article_id, status, message)
+            VALUES ('lingq_upload', ?1, ?2, ?3)
+            "#,
+            params![id.get(), status, error.unwrap_or_default()],
         )?;
         Ok(())
     }
@@ -685,6 +739,48 @@ impl Database {
             average_word_count,
             sections,
         })
+    }
+
+    pub fn get_health(
+        &self,
+        db_path: Option<&Path>,
+        backups_dir: Option<&Path>,
+    ) -> Result<DatabaseHealth> {
+        let conn = self.read()?;
+        let schema_version =
+            max_version(&conn, "schema_version")?.max(max_version(&conn, "schema_migrations")?);
+        let migration_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })?;
+        let journal_mode: String =
+            conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))?;
+        let foreign_keys_enabled: i64 =
+            conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        let integrity_check: String =
+            conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        let page_count: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let freelist_count: i64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        let database_size_bytes =
+            db_path.and_then(|path| std::fs::metadata(path).ok().map(|meta| meta.len()));
+        let latest_backup = backups_dir.and_then(latest_backup_path);
+
+        Ok(DatabaseHealth {
+            schema_version,
+            migration_count,
+            journal_mode,
+            foreign_keys_enabled: foreign_keys_enabled != 0,
+            integrity_check,
+            page_count,
+            freelist_count,
+            database_size_bytes,
+            latest_backup,
+        })
+    }
+
+    pub fn optimize(&self) -> Result<()> {
+        self.conn()?.execute_batch("PRAGMA optimize;")?;
+        Ok(())
     }
 
     fn migrate(&self) -> Result<()> {
@@ -1050,6 +1146,66 @@ impl Database {
             record_migration(&conn, 10, "add related audio transcript and upload tables")?;
         }
 
+        if current_version < 11 {
+            conn.execute_batch(
+                r#"
+                BEGIN;
+
+                ALTER TABLE articles ADD COLUMN lingq_upload_status TEXT NOT NULL DEFAULT 'idle';
+                ALTER TABLE articles ADD COLUMN lingq_upload_error TEXT NOT NULL DEFAULT '';
+                ALTER TABLE articles ADD COLUMN lingq_upload_attempted_at TEXT NOT NULL DEFAULT '';
+
+                UPDATE articles
+                   SET lingq_upload_status = CASE
+                       WHEN uploaded_to_lingq = 1 THEN 'succeeded'
+                       ELSE 'idle'
+                   END;
+
+                CREATE TABLE IF NOT EXISTS sync_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_kind TEXT NOT NULL,
+                    article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL,
+                    status TEXT NOT NULL,
+                    message TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_articles_lingq_lesson
+                    ON articles(lingq_lesson_id)
+                    WHERE lingq_lesson_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_articles_audio_local_path
+                    ON articles(audio_local_path)
+                    WHERE audio_local_path <> '';
+                CREATE INDEX IF NOT EXISTS idx_articles_date
+                    ON articles(date DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_articles_upload_status
+                    ON articles(lingq_upload_status, lingq_upload_attempted_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_articles_section_uploaded_words
+                    ON articles(section, uploaded_to_lingq, word_count);
+                CREATE INDEX IF NOT EXISTS idx_sync_events_article
+                    ON sync_events(article_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_sync_events_kind_status
+                    ON sync_events(event_kind, status, created_at DESC);
+
+                INSERT INTO sync_events (event_kind, article_id, status, message)
+                SELECT 'lingq_upload', id, 'succeeded', 'backfilled from uploaded article state'
+                  FROM articles
+                 WHERE uploaded_to_lingq = 1;
+
+                INSERT INTO schema_version (version) VALUES (11);
+
+                COMMIT;
+                ANALYZE;
+                PRAGMA optimize;
+                "#,
+            )?;
+            record_migration(
+                &conn,
+                11,
+                "add upload status sync events and diagnostics indexes",
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -1104,6 +1260,23 @@ fn record_migration(conn: &Connection, version: i64, name: &str) -> Result<()> {
         params![version, name],
     )?;
     Ok(())
+}
+
+fn latest_backup_path(backups_dir: &Path) -> Option<String> {
+    std::fs::read_dir(backups_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            let is_db = path.extension().is_some_and(|extension| extension == "db");
+            if !is_db {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path.display().to_string())
 }
 
 fn sync_audio_asset(conn: &Connection, article_id: i64, article: &Article) -> Result<()> {
@@ -1367,6 +1540,16 @@ mod tests {
         let stored = db.get_article(id).unwrap().unwrap();
         assert!(stored.uploaded_to_lingq);
         assert_eq!(stored.lingq_lesson_id, Some(999));
+        let success_events: i64 = db
+            .read()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM sync_events WHERE article_id = ?1 AND status = 'succeeded'",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(success_events, 1);
 
         // only_not_uploaded should exclude it
         let results = db
@@ -1450,8 +1633,128 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(version, 10);
-        assert_eq!(count, 10);
+        assert_eq!(version, 11);
+        assert_eq!(count, 11);
+    }
+
+    #[test]
+    fn health_reports_database_pragmas_and_schema() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let health = db.get_health(None, None).unwrap();
+
+        assert_eq!(health.schema_version, 11);
+        assert_eq!(health.migration_count, 11);
+        assert!(health.foreign_keys_enabled);
+        assert_eq!(health.integrity_check, "ok");
+        assert!(health.page_count > 0);
+    }
+
+    #[test]
+    fn upload_status_writes_sync_event() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let id = db
+            .save_article(&make_article("https://taz.de/a/!status/", "Status"))
+            .unwrap();
+        let article_id = ArticleId::new(id).unwrap();
+
+        db.set_upload_status(article_id, "failed", Some("network"))
+            .unwrap();
+
+        let conn = db.read().unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT lingq_upload_status FROM articles WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_events WHERE article_id = ?1 AND status = 'failed'",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(status, "failed");
+        assert_eq!(event_count, 1);
+    }
+
+    #[test]
+    fn migrates_legacy_v1_database_to_latest_schema() {
+        let path = std::env::temp_dir().join(format!(
+            "dlf_legacy_v1_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE schema_version (version INTEGER NOT NULL);
+                CREATE TABLE articles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    subtitle TEXT NOT NULL DEFAULT '',
+                    author TEXT NOT NULL DEFAULT '',
+                    date TEXT NOT NULL DEFAULT '',
+                    section TEXT NOT NULL DEFAULT '',
+                    body_text TEXT NOT NULL,
+                    clean_text TEXT NOT NULL,
+                    word_count INTEGER NOT NULL DEFAULT 0,
+                    fetched_at TEXT NOT NULL,
+                    uploaded_to_lingq INTEGER NOT NULL DEFAULT 0,
+                    lingq_lesson_id INTEGER,
+                    lingq_lesson_url TEXT NOT NULL DEFAULT ''
+                );
+                INSERT INTO schema_version (version) VALUES (1);
+                INSERT INTO articles (
+                    url, title, subtitle, author, date, section, body_text,
+                    clean_text, word_count, fetched_at
+                ) VALUES (
+                    'https://example.test/legacy',
+                    'Legacy',
+                    '',
+                    '',
+                    '2025-01-01',
+                    'Test',
+                    'Legacy body text',
+                    'Legacy clean text',
+                    3,
+                    '2025-01-01T00:00:00Z'
+                );
+                "#,
+            )
+            .unwrap();
+        }
+
+        let db = Database::open(&path).unwrap();
+        let health = db.get_health(Some(&path), None).unwrap();
+        let rows = db
+            .list_articles_meta(&ArticleQuery {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        let conn = db.read().unwrap();
+        let sync_events_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_events'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(health.schema_version, 11);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Legacy");
+        assert_eq!(sync_events_exists, 1);
     }
 
     #[test]

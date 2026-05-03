@@ -120,6 +120,49 @@ impl AppState {
         });
     }
 
+    pub(super) fn refresh_health(&mut self) {
+        let db = self.db.clone();
+        let settings = self.settings.data().clone();
+        let token_present = !self.lq.api_key.trim().is_empty();
+        self.spawn_background(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                diagnostics::health_report(&db, &settings, token_present)
+            })
+            .await
+            .map_err(|err| format!("{err:#}"));
+            AppEvent::HealthLoaded(result)
+        });
+    }
+
+    pub(super) fn export_diagnostics(&mut self) {
+        let db = self.db.clone();
+        let settings = self.settings.data().clone();
+        let token_present = !self.lq.api_key.trim().is_empty();
+        self.set_status("Writing diagnostics bundle...");
+        self.spawn_background(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                diagnostics::export_diagnostics_bundle(&db, &settings, token_present)
+                    .map(|path| path.display().to_string())
+            })
+            .await
+            .unwrap_or_else(|err| Err(anyhow::anyhow!("{err}")))
+            .map_err(|err| format!("{err:#}"));
+            AppEvent::DiagnosticsExported(result)
+        });
+    }
+
+    pub(super) fn optimize_database(&mut self) {
+        let db = self.db.clone();
+        self.set_status("Optimizing database...");
+        self.spawn_background(async move {
+            let result = tokio::task::spawn_blocking(move || db.optimize())
+                .await
+                .unwrap_or_else(|err| Err(anyhow::anyhow!("{err}")))
+                .map_err(|err| format!("{err:#}"));
+            AppEvent::DatabaseOptimized(result)
+        });
+    }
+
     pub(super) fn load_collections_if_possible(&mut self) {
         if !self.lq.api_key.trim().is_empty() {
             self.load_collections();
@@ -178,7 +221,7 @@ impl AppState {
 
     pub(super) fn save_browse_selection(&mut self) {
         if self.browse.selected.is_empty() {
-            self.set_status("Select at least one article first.");
+            self.set_status(messages::SELECT_BROWSE_ARTICLE);
             return;
         }
         let urls = self.browse.selected.iter().cloned().collect::<Vec<_>>();
@@ -210,7 +253,11 @@ impl AppState {
             audio_dir: audio_dir_setting,
             audio_failure_mode: AudioFailureMode::BestEffort,
         };
+        let limiter = self.job_limiter.clone();
         self.runtime.spawn(async move {
+            let Ok(_permit) = limiter.acquire_owned().await else {
+                return;
+            };
             let result: Result<(usize, Vec<String>, Vec<String>), String> = async {
                 let mut saved = 0usize;
                 let mut failed = Vec::new();
@@ -364,7 +411,11 @@ impl AppState {
             audio_dir: audio_dir_setting,
             audio_failure_mode: AudioFailureMode::BestEffort,
         };
+        let limiter = self.job_limiter.clone();
         self.runtime.spawn(async move {
+            let Ok(_permit) = limiter.acquire_owned().await else {
+                return;
+            };
             let result: Result<(usize, usize, usize, Vec<String>, bool), String> = async {
                 let discovery_limit = per_section_cap.saturating_mul(4).max(160);
                 let mut seen = HashSet::new();
@@ -514,7 +565,11 @@ impl AppState {
             audio_failure_mode: AudioFailureMode::BestEffort,
         };
 
+        let limiter = self.job_limiter.clone();
         self.runtime.spawn(async move {
+            let Ok(_permit) = limiter.acquire_owned().await else {
+                return;
+            };
             let result: Result<(usize, usize, Vec<String>, bool), String> = async {
                 let discovery_limit = per_section_cap.saturating_mul(4).max(40);
                 let mut seen = std::collections::HashSet::new();
@@ -629,11 +684,11 @@ impl AppState {
 
     pub(super) fn upload_selected(&mut self) {
         if self.lq.api_key.trim().is_empty() {
-            self.set_status("Open LingQ settings and save a token first.");
+            self.set_status(messages::SAVE_LINGQ_TOKEN_FIRST);
             return;
         }
         if self.lq.selected_articles.is_empty() {
-            self.set_status("Select at least one saved article to upload.");
+            self.set_status(messages::SELECT_ARTICLE_TO_UPLOAD);
             return;
         }
 
@@ -673,7 +728,11 @@ impl AppState {
         let lingq = self.lingq.clone();
         let db = self.db.clone();
         let cancel = self.cancel_flag.clone();
+        let limiter = self.job_limiter.clone();
         self.runtime.spawn(async move {
+            let Ok(_permit) = limiter.acquire_owned().await else {
+                return;
+            };
             let result: Result<(usize, usize, Vec<String>, bool), String> = async {
                 let mut uploaded = 0usize;
                 let mut updated_existing = 0usize;
@@ -809,6 +868,24 @@ impl AppState {
                     }
                     Err(err) => self.set_status(err),
                 },
+                AppEvent::HealthLoaded(result) => match result {
+                    Ok(report) => {
+                        self.health_report = report;
+                        self.sync_to_window();
+                    }
+                    Err(err) => self.set_status(messages::health_failed(&err)),
+                },
+                AppEvent::DiagnosticsExported(result) => match result {
+                    Ok(path) => self.set_status(format!("Diagnostics written to {path}")),
+                    Err(err) => self.set_status(messages::diagnostics_failed(&err)),
+                },
+                AppEvent::DatabaseOptimized(result) => match result {
+                    Ok(()) => {
+                        self.set_status("Database optimized.");
+                        self.refresh_health();
+                    }
+                    Err(err) => self.set_status(format!("Database optimization failed: {err}")),
+                },
                 AppEvent::FetchProgress(progress) => {
                     self.progress = Some(progress);
                     self.dirty.progress = true;
@@ -825,6 +902,7 @@ impl AppState {
                     self.set_status(format!("{message}{}", format_failure_suffix(&failed)));
                     self.refresh_saved_urls();
                     self.refresh_stats();
+                    self.refresh_health();
                     self.load_library();
                     self.load_browse();
                 }
@@ -846,6 +924,7 @@ impl AppState {
                     self.set_status(format!("{message}{}", format_failure_suffix(&failed)));
                     self.refresh_saved_urls();
                     self.refresh_stats();
+                    self.refresh_health();
                     self.load_library();
                 }
                 AppEvent::CollectionsLoaded(result) => match result {
@@ -904,6 +983,7 @@ impl AppState {
                         &failed,
                     ));
                     self.refresh_stats();
+                    self.refresh_health();
                     self.load_library();
                 }
             }

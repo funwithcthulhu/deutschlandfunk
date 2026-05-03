@@ -1,7 +1,9 @@
 pub mod audio;
 pub mod database;
 pub mod deutschlandfunk;
+pub mod diagnostics;
 pub mod gui;
+pub mod ids;
 pub mod lingq;
 pub mod services;
 pub mod settings;

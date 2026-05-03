@@ -275,6 +275,7 @@ impl AppState {
         window.set_lingq_username(self.lq.username.clone().into());
         window.set_lingq_password(self.lq.password.clone().into());
         window.set_status_message(self.status_message.clone().into());
+        window.set_health_report(self.health_report.clone().into());
         window.set_preview_wide(self.library.preview_wide);
         window.set_site_search_query(self.browse.search_query.clone().into());
 

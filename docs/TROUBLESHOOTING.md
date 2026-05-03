@@ -17,6 +17,7 @@ Check:
 - A LingQ course/collection is selected if you want lessons grouped.
 - The article has non-empty text or a transcript.
 - The token was not revoked in LingQ.
+- The Health panel does not report database integrity problems.
 
 Open Library + LingQ and check that the status badge says LingQ is connected.
 If not, open Settings, save a token or log in again, then refresh courses.
@@ -60,6 +61,21 @@ lock.
 
 Use the built-in GUI Backup DB action instead of copying the live database
 manually.
+
+Open the Audio page and refresh the Health panel. If `integrity_check` is not
+`ok`, create a backup copy before doing more troubleshooting.
+
+## Diagnostics Export
+
+Use Export Diagnostics from the GUI when you need a compact support snapshot.
+The bundle is written under:
+
+```text
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\diagnostics\
+```
+
+It is redacted, but still review it before sharing because local paths and
+library counts may be personal.
 
 ## Where Are My Files?
 

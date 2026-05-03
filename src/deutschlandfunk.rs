@@ -13,11 +13,13 @@ use reqwest::{Client, StatusCode};
 use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
 use std::{
-    collections::{HashSet, VecDeque},
-    sync::LazyLock,
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, LazyLock},
     time::Duration,
 };
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
+mod cache;
 mod client_queries;
 mod model;
 mod sections;
@@ -30,6 +32,7 @@ pub use model::{
 };
 pub use sections::SECTIONS;
 
+use cache::{Cached, cached_value, store_cached_value};
 use client_queries::{
     extract_article_copy_text, extract_article_meta_fields, extract_audio,
     first_string_from_scripts, infer_section_from_scripts, parse_client_queries,
@@ -42,6 +45,10 @@ use text::{clean_whitespace, collect_text, strip_markup, trim_chars};
 pub struct DeutschlandfunkClient {
     client: Client,
     article_url_re: Regex,
+    request_gate: Arc<Semaphore>,
+    last_request_started_at: Arc<AsyncMutex<Option<tokio::time::Instant>>>,
+    browse_cache: Arc<AsyncMutex<HashMap<String, Cached<BrowseSectionResult>>>>,
+    search_cache: Arc<AsyncMutex<HashMap<String, Cached<Vec<ArticleSummary>>>>>,
 }
 
 struct ArticleCollection<'a> {
@@ -56,6 +63,9 @@ struct ArticleCollection<'a> {
 }
 
 static SECTION_URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-\d+\.html$").unwrap());
+const MAX_CONCURRENT_DLF_REQUESTS: usize = 4;
+const REQUEST_SPACING: Duration = Duration::from_millis(150);
+const DISCOVERY_CACHE_TTL: Duration = Duration::from_secs(180);
 
 impl DeutschlandfunkClient {
     pub fn new() -> Result<Self> {
@@ -73,6 +83,10 @@ impl DeutschlandfunkClient {
         Ok(Self {
             client,
             article_url_re,
+            request_gate: Arc::new(Semaphore::new(MAX_CONCURRENT_DLF_REQUESTS)),
+            last_request_started_at: Arc::new(AsyncMutex::new(None)),
+            browse_cache: Arc::new(AsyncMutex::new(HashMap::new())),
+            search_cache: Arc::new(AsyncMutex::new(HashMap::new())),
         })
     }
 
@@ -88,7 +102,7 @@ impl DeutschlandfunkClient {
     /// aren't in the SECTIONS list. Returns (url, label) tuples; never errors
     /// fatally because the site's nav is decorative for our flow.
     pub async fn discover_new_sections(&self) -> Result<Vec<(String, String)>> {
-        let html = self.client.get(BASE_URL).send().await?.text().await?;
+        let html = self.fetch_html(BASE_URL).await?;
         let document = Html::parse_document(&html);
         let nav_sel =
             Selector::parse("nav a[href]").unwrap_or_else(|_| Selector::parse("a").unwrap());
@@ -131,6 +145,11 @@ impl DeutschlandfunkClient {
         section: &Section,
         limit: usize,
     ) -> Result<BrowseSectionResult> {
+        let cache_key = format!("section:{}:{limit}", section.id);
+        if let Some(cached) = self.cached_browse_result(&cache_key).await {
+            debug!("Browse cache hit for {cache_key}");
+            return Ok(cached);
+        }
         let mut articles = Vec::new();
         let mut seen_articles = HashSet::new();
         let mut queued = VecDeque::new();
@@ -172,7 +191,9 @@ impl DeutschlandfunkClient {
             }
         }
 
-        Ok(BrowseSectionResult { articles, report })
+        let result = BrowseSectionResult { articles, report };
+        self.store_browse_result(cache_key, result.clone()).await;
+        Ok(result)
     }
 
     pub async fn browse_url(
@@ -211,6 +232,11 @@ impl DeutschlandfunkClient {
         }
 
         let encoded = urlencoding::encode(query.trim());
+        let cache_key = format!("search:{}:{max_pages}", query.trim().to_lowercase());
+        if let Some(cached) = self.cached_search_result(&cache_key).await {
+            debug!("Search cache hit for {cache_key}");
+            return Ok(cached);
+        }
         let mut articles = Vec::new();
         let mut seen = HashSet::new();
         let mut report = DiscoveryReport::default();
@@ -247,6 +273,7 @@ impl DeutschlandfunkClient {
             }
         }
 
+        self.store_search_result(cache_key, articles.clone()).await;
         Ok(articles)
     }
 
@@ -457,6 +484,12 @@ impl DeutschlandfunkClient {
     async fn fetch_html(&self, url: &str) -> Result<String> {
         let parsed_url =
             reqwest::Url::parse(url).with_context(|| format!("network: invalid URL {url}"))?;
+        let _request_permit = self
+            .request_gate
+            .acquire()
+            .await
+            .map_err(|_| anyhow::anyhow!("network: request limiter is closed"))?;
+        self.wait_for_request_spacing().await;
         let mut last_error = None;
         for attempt in 1..=3 {
             debug!("HTTP GET {url} (attempt {attempt})");
@@ -491,6 +524,41 @@ impl DeutschlandfunkClient {
             tokio::time::sleep(Duration::from_millis(450 * attempt as u64)).await;
         }
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("network: failed to fetch {url}")))
+    }
+
+    async fn wait_for_request_spacing(&self) {
+        let mut last = self.last_request_started_at.lock().await;
+        if let Some(previous) = *last {
+            let elapsed = previous.elapsed();
+            if elapsed < REQUEST_SPACING {
+                tokio::time::sleep(REQUEST_SPACING - elapsed).await;
+            }
+        }
+        *last = Some(tokio::time::Instant::now());
+    }
+
+    async fn cached_browse_result(&self, key: &str) -> Option<BrowseSectionResult> {
+        cached_value(
+            &mut *self.browse_cache.lock().await,
+            key,
+            DISCOVERY_CACHE_TTL,
+        )
+    }
+
+    async fn store_browse_result(&self, key: String, value: BrowseSectionResult) {
+        store_cached_value(&mut *self.browse_cache.lock().await, key, value);
+    }
+
+    async fn cached_search_result(&self, key: &str) -> Option<Vec<ArticleSummary>> {
+        cached_value(
+            &mut *self.search_cache.lock().await,
+            key,
+            DISCOVERY_CACHE_TTL,
+        )
+    }
+
+    async fn store_search_result(&self, key: String, value: Vec<ArticleSummary>) {
+        store_cached_value(&mut *self.search_cache.lock().await, key, value);
     }
 
     fn collect_articles_from_document(&self, ctx: ArticleCollection<'_>) {

@@ -1,13 +1,16 @@
 mod actions;
 mod callbacks;
+mod messages;
 mod sync;
 
 use crate::{
     database::{ArticleQuery, Database, LibraryStats, StoredArticle, StoredArticleMeta},
     deutschlandfunk::{ArticleSummary, BrowseSectionResult, DeutschlandfunkClient, Section},
+    diagnostics,
     lingq::{Collection, LingqClient},
     settings::{self, SettingsStore},
 };
+use anyhow::Context;
 use chrono::{Datelike, NaiveDate};
 use log::{error, info};
 use slint::{ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
@@ -21,7 +24,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
     },
 };
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::Semaphore};
 
 slint::include_modules!();
 
@@ -117,6 +120,9 @@ enum AppEvent {
         failed: Vec<String>,
         cancelled: bool,
     },
+    HealthLoaded(Result<String, String>),
+    DiagnosticsExported(Result<String, String>),
+    DatabaseOptimized(Result<(), String>),
 }
 
 /// Tracks which parts of the UI need rebuilding on the next `sync_to_window`.
@@ -222,6 +228,7 @@ struct AppState {
     tx: Sender<AppEvent>,
     rx: Receiver<AppEvent>,
     runtime: Arc<Runtime>,
+    job_limiter: Arc<Semaphore>,
     db: Arc<Database>,
     settings: SettingsStore,
     sections: &'static [Section],
@@ -231,6 +238,7 @@ struct AppState {
     current_view: View,
     status_message: String,
     stats: Option<LibraryStats>,
+    health_report: String,
     progress: Option<FetchProgress>,
     save_progress: Option<FetchProgress>,
     cancel_flag: Arc<AtomicBool>,
@@ -288,7 +296,11 @@ impl AppState {
         F: std::future::Future<Output = AppEvent> + Send + 'static,
     {
         let tx = self.tx.clone();
+        let limiter = self.job_limiter.clone();
         self.runtime.spawn(async move {
+            let Ok(_permit) = limiter.acquire_owned().await else {
+                return;
+            };
             let event = task.await;
             let _ = tx.send(event);
         });
@@ -308,9 +320,9 @@ impl AppState {
 
 // ── Entry point ──
 
-pub fn run() -> Result<(), slint::PlatformError> {
+pub fn run() -> anyhow::Result<()> {
     info!("Starting GUI");
-    let window = AppWindow::new()?;
+    let window = AppWindow::new().context("failed to create application window")?;
     window.set_browse_section_labels(ModelRc::from(Rc::new(VecModel::from(
         Vec::<SharedString>::new(),
     ))));
@@ -343,11 +355,33 @@ pub fn run() -> Result<(), slint::PlatformError> {
         log::warn!("Failed to load settings: {err:#}, using defaults");
         SettingsStore::in_memory_default()
     });
-    let db = Arc::new(Database::open_default().expect("failed to open database"));
-    let scraper = Arc::new(
-        DeutschlandfunkClient::new().expect("failed to initialize deutschlandfunk client"),
-    );
-    let lingq_client = Arc::new(LingqClient::new().expect("failed to initialize LingQ client"));
+    let db = match Database::open_default() {
+        Ok(db) => Arc::new(db),
+        Err(err) => {
+            return run_startup_error(
+                &window,
+                format!("Startup failed: could not open the local database.\n\n{err:#}"),
+            );
+        }
+    };
+    let scraper = match DeutschlandfunkClient::new() {
+        Ok(scraper) => Arc::new(scraper),
+        Err(err) => {
+            return run_startup_error(
+                &window,
+                format!("Startup failed: could not initialize Deutschlandfunk access.\n\n{err:#}"),
+            );
+        }
+    };
+    let lingq_client = match LingqClient::new() {
+        Ok(lingq_client) => Arc::new(lingq_client),
+        Err(err) => {
+            return run_startup_error(
+                &window,
+                format!("Startup failed: could not initialize LingQ access.\n\n{err:#}"),
+            );
+        }
+    };
     let sections = scraper.sections();
     let browse_section_index = sections
         .iter()
@@ -368,13 +402,22 @@ pub fn run() -> Result<(), slint::PlatformError> {
         _ => LibrarySortMode::Newest,
     };
     let (tx, rx) = mpsc::channel();
-    let runtime = Arc::new(Runtime::new().expect("failed to create tokio runtime"));
+    let runtime = match Runtime::new() {
+        Ok(runtime) => Arc::new(runtime),
+        Err(err) => {
+            return run_startup_error(
+                &window,
+                format!("Startup failed: could not create background runtime.\n\n{err:#}"),
+            );
+        }
+    };
 
     let state = Rc::new(RefCell::new(AppState {
         window: window.as_weak(),
         tx,
         rx,
         runtime,
+        job_limiter: Arc::new(Semaphore::new(4)),
         db,
         settings,
         sections,
@@ -382,8 +425,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
         lingq: lingq_client,
         dirty: DirtyFlags::all(),
         current_view,
-        status_message: "Loading DLF sections, library, and LingQ status.".to_owned(),
+        status_message: messages::STATUS_LOADING.to_owned(),
         stats: None,
+        health_report: "Health report loading.".to_owned(),
         progress: None,
         save_progress: None,
         cancel_flag: Arc::new(AtomicBool::new(false)),
@@ -451,6 +495,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         let mut app = state.borrow_mut();
         app.refresh_saved_urls();
         app.refresh_stats();
+        app.refresh_health();
         app.load_library();
         app.load_browse();
         app.load_collections_if_possible();
@@ -459,7 +504,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
         // Fire-and-forget: discover any new nav sections on deutschlandfunk.de
         let discover_scraper = app.scraper.clone();
+        let discover_limiter = app.job_limiter.clone();
         app.runtime.spawn(async move {
+            let Ok(_permit) = discover_limiter.acquire_owned().await else {
+                return;
+            };
             if let Err(err) = discover_scraper.discover_new_sections().await {
                 log::debug!("Section discovery failed: {err:#}");
             }
@@ -492,7 +541,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // Give background tasks a moment to finish cleanly
     std::thread::sleep(std::time::Duration::from_millis(200));
 
-    result
+    result.context("application window failed")
+}
+
+fn run_startup_error(window: &AppWindow, message: String) -> anyhow::Result<()> {
+    error!("{message}");
+    window.set_page_index(2);
+    window.set_status_message(message.clone().into());
+    window.set_health_report(message.into());
+    window.set_stat_cards(ModelRc::from(Rc::new(VecModel::from(vec![
+        StatCard {
+            label: "Startup".into(),
+            value: "Failed".into(),
+        },
+        StatCard {
+            label: "Action".into(),
+            value: "Close app".into(),
+        },
+    ]))));
+    window.run().context("startup error window failed")
 }
 
 // ── Free helper functions ──

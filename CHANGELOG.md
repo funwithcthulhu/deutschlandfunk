@@ -11,6 +11,16 @@ All notable changes to DLF LingQ Reader are tracked here.
 - Add user, development, database, troubleshooting, contributing, and security
   documentation.
 - Add Dependabot configuration for Cargo and GitHub Actions updates.
+- Add typed article IDs for upload paths and database access.
+- Add durable LingQ upload status, sync-event history, and database schema
+  version 11.
+- Add database health reporting and redacted diagnostics export from the GUI.
+- Add GUI-triggered SQLite optimization from the Health panel.
+- Add Deutschlandfunk request limiting plus short-lived browse/search caching.
+- Add bounded GUI background job execution to reduce concurrent workload spikes.
+- Validate local MP3 attachments before sending LingQ upload requests.
+- Add architecture, design decision, processing, privacy, limitations, release,
+  and screenshot documentation.
 
 ## 1.0.0
 

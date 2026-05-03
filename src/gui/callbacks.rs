@@ -99,6 +99,21 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
     });
 
     let state_clone = state.clone();
+    window.on_export_diagnostics(move || {
+        state_clone.borrow_mut().export_diagnostics();
+    });
+
+    let state_clone = state.clone();
+    window.on_refresh_health(move || {
+        state_clone.borrow_mut().refresh_health();
+    });
+
+    let state_clone = state.clone();
+    window.on_optimize_database(move || {
+        state_clone.borrow_mut().optimize_database();
+    });
+
+    let state_clone = state.clone();
     window.on_play_article_audio(move |id| {
         state_clone.borrow().play_article_audio(id as i64);
     });

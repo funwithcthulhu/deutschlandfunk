@@ -30,10 +30,17 @@ cargo build --release
 
 ## Architecture
 
+The high-level map and rationale live in:
+
+- [Architecture](ARCHITECTURE.md)
+- [Design decisions](DECISIONS.md)
+- [Processing pipeline](PROCESSING.md)
+
 - `src/deutschlandfunk.rs` and `src/deutschlandfunk/` own source discovery,
   page parsing, section definitions, selectors, and article/audio extraction.
 - `src/database.rs` owns SQLite schema migrations, article persistence,
-  full-text search, exports, stats, and backup.
+  full-text search, exports, diagnostics, stats, and backup.
+- `src/diagnostics.rs` owns redacted health reports and diagnostics bundles.
 - `src/lingq.rs` owns LingQ login, collection listing, lesson creation, and
   existing lesson updates.
 - `src/services/` contains higher-level workflows that compose clients and the
@@ -71,6 +78,18 @@ cargo test
 ```
 
 GitHub Actions runs the same checks on Windows.
+
+## Documentation Workflow
+
+When changing user-visible behavior, update at least one of:
+
+- [User guide](USER_GUIDE.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Limitations](LIMITATIONS.md)
+- [Changelog](../CHANGELOG.md)
+
+When changing architecture, storage, release flow, or privacy behavior, update
+the corresponding document in `docs/` during the same change.
 
 ## Installer Builds
 

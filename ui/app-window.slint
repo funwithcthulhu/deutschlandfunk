@@ -102,6 +102,7 @@ export component AppWindow inherits Window {
     in property <string> browse-count: "";
     in property <string> library-count: "";
     in property <string> audio-count: "";
+    in property <string> health-report: "";
     in-out property <bool> auto-fetch-on-startup: false;
 
     // Audio settings (Deutschlandfunk-specific)
@@ -117,6 +118,9 @@ export component AppWindow inherits Window {
     callback download-article-audio(int);
     callback open-audio-dir();
     callback backup-database();
+    callback export-diagnostics();
+    callback refresh-health();
+    callback optimize-database();
     callback play-article-audio(int);
     callback reveal-article-audio(int);
     callback retry-last-failures();
@@ -432,6 +436,7 @@ export component AppWindow inherits Window {
                                     Rectangle { horizontal-stretch: 1; }
                                     TextBtn { label: "Open audio folder"; clicked => { root.open-audio-dir(); } }
                                     TextBtn { label: "Backup DB"; clicked => { root.backup-database(); } }
+                                    TextBtn { label: "Export diagnostics"; clicked => { root.export-diagnostics(); } }
                                 }
                                 HorizontalLayout {
                                     spacing: 4px;
@@ -618,6 +623,28 @@ export component AppWindow inherits Window {
                         }
 
                         Text { text: root.library-summary; color: #bcaa9a; font-size: 11px; }
+
+                        if root.page-index == 2 : Panel {
+                            height: 120px;
+                            panel-background: #211f24;
+                            panel-border: #3e3239;
+                            clip: true;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                HorizontalLayout {
+                                    Text { text: "Health"; color: white; font-size: 14px; font-weight: 800; horizontal-stretch: 1; }
+                                    TextBtn { label: "Refresh"; clicked => { root.refresh-health(); } }
+                                    TextBtn { label: "Optimize"; clicked => { root.optimize-database(); } }
+                                    TextBtn { label: "Export"; clicked => { root.export-diagnostics(); } }
+                                }
+                                ScrollView {
+                                    vertical-stretch: 1;
+                                    viewport-width: self.width;
+                                    Text { text: root.health-report; color: #bcaa9a; wrap: word-wrap; font-size: 11px; }
+                                }
+                            }
+                        }
 
                         // Library article list + preview split
                         HorizontalLayout {

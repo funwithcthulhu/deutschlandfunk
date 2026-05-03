@@ -90,12 +90,23 @@ Backups default to:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\backups\
 ```
 
-Backups are created through SQLite's backup API, so they are safer than copying
+Backups are created through SQLite-safe export, so they are safer than copying
 the database file while the app is running.
 
 ## Diagnostics
 
-The important local paths are shown in this guide and the database/storage
-document. For account issues, the Library + LingQ view shows whether LingQ is
-connected, and the settings dialog lets you save, refresh, or disconnect the
-stored token without printing the token value.
+The Audio page includes a Health panel with database and storage information.
+Use Refresh Health to update it after backups, uploads, or large library
+changes.
+
+Use Optimize from the same Health panel after large imports, deletes, or schema
+migrations if you want SQLite to refresh query-planner statistics.
+
+Use Export Diagnostics to write a redacted diagnostics bundle under:
+
+```text
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\diagnostics\
+```
+
+Diagnostics include schema version, counts, configured paths, and token presence
+only. They do not include LingQ token values.

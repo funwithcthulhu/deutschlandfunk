@@ -53,6 +53,32 @@ be used for previews and LingQ upload text.
 `lingq_uploads` records LingQ lesson IDs and URLs by article so upload history
 is not only stored on the article row.
 
+`sync_events` records workflow events such as LingQ upload status changes. It is
+used for diagnostics and for making failed/pending/uploading/succeeded states
+durable across app restarts.
+
+## Current Schema Notes
+
+Schema version 11 adds durable LingQ upload status fields and sync events:
+
+- `articles.lingq_upload_status`
+- `articles.lingq_upload_error`
+- `articles.lingq_upload_attempted_at`
+- `sync_events`
+
+It also adds indexes for common library filters, audio lookups, LingQ lesson
+lookups, upload status inspection, and sync-event history.
+
+## Health And Optimization
+
+The app can report database health from the GUI. Health includes schema version,
+migration count, journal mode, foreign-key status, integrity check, page counts,
+database size, and latest backup path.
+
+The Audio page Health panel exposes an Optimize action that runs SQLite
+optimization pragmas. Migrations also run `ANALYZE` after adding the schema
+version 11 indexes.
+
 ## Backups
 
 Use the GUI Backup DB action.
@@ -63,8 +89,8 @@ Backups default to:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\backups\
 ```
 
-The app uses SQLite's backup API. Prefer this over manually copying the live
-database file.
+The app creates backups through SQLite-safe `VACUUM INTO`. Prefer this over
+manually copying the live database file.
 
 ## Restore
 
