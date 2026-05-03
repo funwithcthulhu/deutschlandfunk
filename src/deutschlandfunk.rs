@@ -455,10 +455,12 @@ impl DeutschlandfunkClient {
     }
 
     async fn fetch_html(&self, url: &str) -> Result<String> {
+        let parsed_url =
+            reqwest::Url::parse(url).with_context(|| format!("network: invalid URL {url}"))?;
         let mut last_error = None;
         for attempt in 1..=3 {
             debug!("HTTP GET {url} (attempt {attempt})");
-            match self.client.get(url).send().await {
+            match self.client.get(parsed_url.clone()).send().await {
                 Ok(response) => {
                     let status = response.status();
                     if status.is_success() {
@@ -502,8 +504,15 @@ impl DeutschlandfunkClient {
             articles,
             report,
         } = ctx;
+        if articles.len() >= limit {
+            return;
+        }
+
         let selector = parsed::LINKS.clone();
         for link in document.select(&selector) {
+            if articles.len() >= limit {
+                break;
+            }
             let Some(raw_href) = link.value().attr("href") else {
                 continue;
             };
@@ -543,9 +552,6 @@ impl DeutschlandfunkClient {
                 has_audio_hint,
             });
             report.record_article(source_kind);
-            if articles.len() >= limit {
-                break;
-            }
         }
     }
 
@@ -1097,5 +1103,49 @@ mod tests {
             info.best_download_url(),
             Some("https://download.deutschlandfunk.de/x.mp3")
         );
+    }
+
+    #[test]
+    fn collect_articles_respects_zero_limit() {
+        let client = DeutschlandfunkClient::new().unwrap();
+        let document = Html::parse_document(
+            r#"
+            <main>
+                <a href="https://www.deutschlandfunk.de/test-headline-long-enough-100.html">
+                    <h2>Eine ausreichend lange Test-Uberschrift</h2>
+                </a>
+            </main>
+            "#,
+        );
+        let mut seen = HashSet::new();
+        let mut articles = Vec::new();
+        let mut report = DiscoveryReport::default();
+
+        client.collect_articles_from_document(ArticleCollection {
+            document: &document,
+            fallback_section: Some("Test"),
+            source_url: BASE_URL,
+            source_kind: DiscoverySourceKind::Section,
+            limit: 0,
+            seen: &mut seen,
+            articles: &mut articles,
+            report: &mut report,
+        });
+
+        assert!(articles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_html_rejects_invalid_url_without_retry_delay() {
+        let client = DeutschlandfunkClient::new().unwrap();
+        let started = std::time::Instant::now();
+
+        let err = client.fetch_html("not-a-url").await.unwrap_err();
+
+        assert!(
+            format!("{err:#}").contains("network: invalid URL not-a-url"),
+            "{err:#}"
+        );
+        assert!(started.elapsed() < Duration::from_millis(100));
     }
 }
