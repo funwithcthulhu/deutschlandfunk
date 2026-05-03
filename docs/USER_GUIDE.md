@@ -70,7 +70,6 @@ You can point the app at another folder from settings.
 
 The app can get a LingQ token from:
 
-- CLI flag: `--api-key`
 - Environment variable: `LINGQ_API_KEY`
 - GUI token field
 - GUI username/password login, which saves the returned token locally
@@ -83,11 +82,7 @@ The token is stored separately from `settings.json` in:
 
 ## Backups
 
-Use the GUI Backup DB action or:
-
-```powershell
-cargo run -- backup
-```
+Use the GUI Backup DB action from the Audio/settings area.
 
 Backups default to:
 
@@ -100,12 +95,7 @@ the database file while the app is running.
 
 ## Diagnostics
 
-Run:
-
-```powershell
-cargo run -- doctor
-cargo run -- doctor --json
-```
-
-The doctor command prints local paths, selected settings, token presence, and
-library stats. It never prints the token value.
+The important local paths are shown in this guide and the database/storage
+document. For account issues, the Library + LingQ view shows whether LingQ is
+connected, and the settings dialog lets you save, refresh, or disconnect the
+stored token without printing the token value.

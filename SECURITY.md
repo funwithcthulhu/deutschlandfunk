@@ -20,5 +20,5 @@ LingQ tokens are stored locally in:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\lingq_token
 ```
 
-The `doctor` command reports token presence and length only. It must never print
-the token value.
+The app should never print or display the token value. UI diagnostics may show
+connection state, but not the saved token itself.

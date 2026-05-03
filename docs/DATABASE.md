@@ -55,13 +55,7 @@ is not only stored on the article row.
 
 ## Backups
 
-Use:
-
-```powershell
-cargo run -- backup
-```
-
-Or the GUI Backup DB action.
+Use the GUI Backup DB action.
 
 Backups default to:
 

@@ -1,6 +1,6 @@
 # Development Guide
 
-This project is a Rust desktop app plus CLI. The GUI is built with Slint, async
+This project is a Rust desktop app. The GUI is built with Slint, async
 networking uses Tokio and Reqwest, and local storage uses SQLite through
 Rusqlite.
 
@@ -40,12 +40,12 @@ cargo build --release
   database without coupling them directly to GUI code.
 - `src/gui/` owns Slint state, callbacks, event handling, and syncing state to
   the UI.
-- `src/main.rs` owns CLI argument parsing and command dispatch.
+- `src/main.rs` is intentionally small and only launches the GUI.
 
 The intended dependency direction is:
 
 ```text
-CLI / GUI
+GUI
   -> services
     -> deutschlandfunk / lingq / transcribe / database
 ```

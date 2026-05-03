@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml)
 
-Unofficial Windows-first desktop app and CLI for collecting articles and MP3
-audio from `deutschlandfunk.de`, keeping them in a local SQLite library, and
-turning them into LingQ lessons.
+Unofficial Windows-first desktop app for collecting articles and MP3 audio from
+`deutschlandfunk.de`, keeping them in a local SQLite library, and turning them
+into LingQ lessons.
 
 This project is not affiliated with, endorsed by, or sponsored by
 Deutschlandradio, Deutschlandfunk, or LingQ.
@@ -19,7 +19,7 @@ Deutschlandradio, Deutschlandfunk, or LingQ.
 - Optionally transcribe downloaded audio with `whisper.cpp`.
 - Upload text-only or text-plus-audio lessons to LingQ.
 - Update existing LingQ lessons in place instead of creating duplicates.
-- Back up the SQLite database from the GUI or CLI.
+- Back up the SQLite database from the GUI.
 - Build a Windows installer with Inno Setup.
 
 ## Naming And Compatibility
@@ -45,12 +45,6 @@ Run the GUI from source:
 cargo run
 ```
 
-Or explicitly:
-
-```powershell
-cargo run -- gui
-```
-
 The first useful flow is:
 
 1. Open the app.
@@ -61,47 +55,6 @@ The first useful flow is:
 6. Pick a LingQ course and upload selected articles.
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full GUI workflow.
-
-## CLI Examples
-
-```powershell
-# List built-in Deutschlandfunk section shortcuts
-cargo run -- sections
-
-# Browse a built-in section
-cargo run -- browse --section nachrichten --limit 15
-
-# Browse an arbitrary Deutschlandfunk URL
-cargo run -- browse-url --url https://www.deutschlandfunk.de/hintergrund-100.html --limit 15
-
-# Fetch one article and print cleaned text
-cargo run -- fetch --url https://www.deutschlandfunk.de/<slug>-100.html
-
-# Fetch, save, and download MP3 audio when available
-cargo run -- fetch --url https://www.deutschlandfunk.de/<slug>-100.html --save --with-audio
-
-# Download only the article audio
-cargo run -- audio --url https://www.deutschlandfunk.de/<slug>-100.html
-
-# Show saved articles
-cargo run -- library --limit 20
-
-# Upload a saved article to LingQ
-cargo run -- upload --id 1 --api-key YOUR_LINGQ_API_KEY
-
-# Upload with local audio attached
-cargo run -- upload --id 1 --api-key YOUR_LINGQ_API_KEY --with-audio
-
-# Show paths, settings, token presence, and library stats
-cargo run -- doctor
-cargo run -- doctor --json
-
-# Create a SQLite-safe database backup
-cargo run -- backup
-
-# Transcribe a downloaded MP3 with whisper.cpp
-cargo run -- transcribe --id 1
-```
 
 ## Build And Test
 
@@ -160,7 +113,7 @@ src/
   deutschlandfunk/        Parser modules, selectors, sections, models
   gui/                    Slint GUI state, callbacks, actions, sync
   lingq.rs                LingQ login, course listing, upload/update client
-  main.rs                 CLI subcommands and GUI entry point
+  main.rs                 GUI entry point
   services/               Ingest, upload, and transcription workflows
   settings.rs             Persistent app settings and LingQ token storage
   transcribe.rs           Optional whisper.cpp integration

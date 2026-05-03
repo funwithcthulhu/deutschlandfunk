@@ -18,13 +18,8 @@ Check:
 - The article has non-empty text or a transcript.
 - The token was not revoked in LingQ.
 
-Run:
-
-```powershell
-cargo run -- doctor
-```
-
-The doctor command reports whether a token exists without printing it.
+Open Library + LingQ and check that the status badge says LingQ is connected.
+If not, open Settings, save a token or log in again, then refresh courses.
 
 ## Audio Did Not Attach To LingQ
 
@@ -63,19 +58,10 @@ Close extra running instances of the app. The database has a short busy timeout,
 but a long-running copy, backup, or external SQLite viewer can still hold a
 lock.
 
-Use the built-in backup command instead of copying the live database manually:
-
-```powershell
-cargo run -- backup
-```
+Use the built-in GUI Backup DB action instead of copying the live database
+manually.
 
 ## Where Are My Files?
-
-Run:
-
-```powershell
-cargo run -- doctor
-```
 
 The important default directory is:
 

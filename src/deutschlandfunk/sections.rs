@@ -4,8 +4,8 @@ pub(super) const BASE_URL: &str = "https://www.deutschlandfunk.de";
 pub(super) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
 /// Builtin Deutschlandfunk section landing pages. URLs verified against
-/// deutschlandfunk.de. If a future redesign breaks one, run
-/// `cargo run -- browse-url --url <...>` to confirm and update here.
+/// deutschlandfunk.de. If a future redesign breaks one, verify the affected
+/// landing URL in the app or with a focused parser test before updating here.
 pub const SECTIONS: &[Section] = &[
     Section {
         id: "startseite",
