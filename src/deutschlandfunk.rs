@@ -421,24 +421,36 @@ impl DeutschlandfunkClient {
         let total = response.content_length().unwrap_or(0);
 
         let tmp = dest.with_extension("mp3.partial");
+        let _ = tokio::fs::remove_file(&tmp).await;
         let mut file = tokio::fs::File::create(&tmp)
             .await
             .with_context(|| format!("failed to create {}", tmp.display()))?;
         let mut downloaded: u64 = 0;
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("audio stream broke")?;
-            file.write_all(&chunk)
-                .await
-                .context("failed to write audio chunk")?;
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(err) => {
+                    let _ = tokio::fs::remove_file(&tmp).await;
+                    return Err(err).context("audio stream broke");
+                }
+            };
+            if let Err(err) = file.write_all(&chunk).await {
+                let _ = tokio::fs::remove_file(&tmp).await;
+                return Err(err).context("failed to write audio chunk");
+            }
             downloaded += chunk.len() as u64;
             progress(downloaded, total);
         }
-        file.flush().await.ok();
+        if let Err(err) = file.flush().await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(err).context("failed to flush audio file");
+        }
         drop(file);
-        tokio::fs::rename(&tmp, dest)
-            .await
-            .with_context(|| format!("failed to move audio to {}", dest.display()))?;
+        if let Err(err) = tokio::fs::rename(&tmp, dest).await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(err).with_context(|| format!("failed to move audio to {}", dest.display()));
+        }
         Ok(downloaded)
     }
 

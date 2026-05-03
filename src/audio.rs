@@ -29,13 +29,17 @@ pub fn resolve_audio_dir(configured: &str) -> Result<PathBuf> {
 /// back to a slug derived from the article URL.
 pub fn audio_file_path(audio_dir: &Path, article_url: &str, sophora_id: Option<&str>) -> PathBuf {
     let stem = sophora_id
-        .map(sanitize_filename)
+        .and_then(sanitized_filename_stem)
         .unwrap_or_else(|| slug_from_url(article_url));
     audio_dir.join(format!("{stem}.mp3"))
 }
 
 fn sanitize_filename(input: &str) -> String {
-    input
+    sanitized_filename_stem(input).unwrap_or_else(|| "audio".to_owned())
+}
+
+fn sanitized_filename_stem(input: &str) -> Option<String> {
+    let sanitized = input
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -46,7 +50,8 @@ fn sanitize_filename(input: &str) -> String {
         })
         .collect::<String>()
         .trim_matches('_')
-        .to_owned()
+        .to_owned();
+    (!sanitized.is_empty()).then_some(sanitized)
 }
 
 fn slug_from_url(url: &str) -> String {
@@ -105,6 +110,11 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_empty_stem_uses_safe_fallback() {
+        assert_eq!(sanitize_filename("???"), "audio");
+    }
+
+    #[test]
     fn audio_file_path_prefers_sophora_id() {
         let p = audio_file_path(
             Path::new("/tmp"),
@@ -112,6 +122,22 @@ mod tests {
             Some("foo-100"),
         );
         assert_eq!(p.file_name().unwrap().to_string_lossy(), "foo-100.mp3");
+    }
+
+    #[test]
+    fn audio_file_path_falls_back_to_url_when_sophora_id_is_unsafe() {
+        let p = audio_file_path(
+            Path::new("/tmp"),
+            "https://www.deutschlandfunk.de/foo-100.html",
+            Some("???"),
+        );
+        assert_eq!(p.file_name().unwrap().to_string_lossy(), "foo-100.mp3");
+    }
+
+    #[test]
+    fn audio_file_path_uses_safe_name_for_empty_url() {
+        let p = audio_file_path(Path::new("/tmp"), "", None);
+        assert_eq!(p.file_name().unwrap().to_string_lossy(), "audio.mp3");
     }
 
     #[test]

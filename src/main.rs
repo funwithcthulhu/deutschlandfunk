@@ -453,12 +453,7 @@ fn run_backup(output: Option<&str>) -> Result<()> {
     let db = Database::open_default()?;
     let path = match output {
         Some(path) => std::path::PathBuf::from(path),
-        None => {
-            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-            deutschlandfunk_lingq_tool::app_data_dir()?
-                .join("backups")
-                .join(format!("deutschlandfunk_lingq_tool-{stamp}.db"))
-        }
+        None => deutschlandfunk_lingq_tool::timestamped_backup_path()?,
     };
     db.backup_to(&path)?;
     println!("Backup written to {}", path.display());

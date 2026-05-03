@@ -989,7 +989,9 @@ impl AppState {
         let configured = self.settings.data().audio_dir.clone();
         match crate::audio::resolve_audio_dir(&configured) {
             Ok(path) => {
-                let _ = webbrowser::open(&format!("file://{}", path.display()));
+                if let Err(err) = open_directory(&path) {
+                    log::warn!("Could not open audio directory {}: {err}", path.display());
+                }
             }
             Err(err) => log::warn!("Could not open audio directory: {err:#}"),
         }
@@ -1000,10 +1002,7 @@ impl AppState {
         let db = self.db.clone();
         self.spawn_background(async move {
             let result = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
-                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-                let path = crate::app_data_dir()?
-                    .join("backups")
-                    .join(format!("deutschlandfunk_lingq_tool-{stamp}.db"));
+                let path = crate::timestamped_backup_path()?;
                 db.backup_to(&path)?;
                 Ok(path.display().to_string())
             })
@@ -1093,18 +1092,9 @@ impl AppState {
             log::warn!("Audio file missing on disk: {}", path.display());
             return;
         }
-        // OS-specific best-effort. `webbrowser::open` invokes the default
-        // protocol handler, but for local files we want the OS's "open with
-        // default" behaviour — that maps to `start` on Windows, `open` on
-        // macOS, `xdg-open` on Linux.
-        #[cfg(target_os = "windows")]
-        let result = std::process::Command::new("cmd")
-            .args(["/c", "start", "", &path.to_string_lossy()])
-            .spawn();
-        #[cfg(target_os = "macos")]
-        let result = std::process::Command::new("open").arg(&path).spawn();
-        #[cfg(all(unix, not(target_os = "macos")))]
-        let result = std::process::Command::new("xdg-open").arg(&path).spawn();
+        // OS-specific best-effort. URLs can use `webbrowser::open`, but local
+        // files need the OS's "open with default app" behavior.
+        let result = open_file(&path);
         if let Err(err) = result {
             log::warn!(
                 "Could not launch default player for {}: {err}",
@@ -1160,4 +1150,37 @@ impl AppState {
 fn is_plausible_api_key(key: &str) -> bool {
     let trimmed = key.trim();
     trimmed.len() >= 8 && trimmed.chars().all(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn open_directory(path: &std::path::Path) -> std::io::Result<std::process::Child> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer").arg(path).spawn()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()
+    }
+}
+
+fn open_file(path: &std::path::Path) -> std::io::Result<std::process::Child> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(path)
+            .spawn()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()
+    }
 }
