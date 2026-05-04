@@ -1,7 +1,7 @@
 # DLF LingQ Reader
 
 Personal Rust/Slint desktop tool for saving Deutschlandfunk articles locally and
-handling LingQ imports.
+sending selected items to LingQ.
 
 This is a personal utility, not an official app. I use it to collect text and
 optional MP3 audio from `deutschlandfunk.de`, keep that material in a local
@@ -52,7 +52,7 @@ Typical use:
 5. Log in to LingQ or paste a token.
 6. Pick a LingQ course and upload selected articles.
 
-## Build/Test
+## Checks
 
 ```powershell
 cargo fmt --all -- --check
@@ -80,7 +80,7 @@ Build the installer:
 .\scripts\build-installer.ps1
 ```
 
-Expected output:
+Installer output:
 
 ```text
 installer\output\dlf-lingq-reader-setup.exe
@@ -111,5 +111,4 @@ Downloaded MP3s default to:
 
 ## License
 
-This is a source-available, all-rights-reserved project. See
-[LICENSE](LICENSE).
+This repo is public, but the code is not open source. See [LICENSE](LICENSE).
