@@ -51,7 +51,7 @@ Try:
 - Running again later if `deutschlandfunk.de` changed markup or rate limited
   requests.
 
-Parser regressions should be covered by adding fixtures under `tests/fixtures/`.
+When fixing parser regressions, add fixtures under `tests/fixtures/`.
 
 ## Database Is Locked
 
@@ -79,14 +79,14 @@ library counts may be personal.
 
 ## Where Are My Files?
 
-The important default directory is:
+Default data directory:
 
 ```text
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\
 ```
 
 The public app name changed to DLF LingQ Reader, but this internal storage path
-is intentionally unchanged.
+is kept for compatibility.
 
 ## Installer Build Cannot Find Inno Setup
 

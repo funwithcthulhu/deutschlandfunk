@@ -37,8 +37,7 @@ impl AppState {
         self.lq.password = window.get_lingq_password().to_string();
         self.bulk.auto_fetch_on_startup = window.get_auto_fetch_on_startup();
 
-        // Audio + Whisper settings — push directly into AppSettings so they
-        // get persisted by flush_settings.
+        // Audio and Whisper settings are persisted through AppSettings.
         let download_audio = window.get_download_audio_on_fetch();
         let upload_audio = window.get_upload_audio_to_lingq();
         let audio_dir = window.get_audio_dir().to_string();
@@ -89,7 +88,6 @@ impl AppState {
         }
         self.settings_dirty = false;
 
-        // Save API key to its own file only when it actually changed
         if self.lq.api_key != self.lq.api_key_last_saved {
             let _ = settings::save_api_key(&self.lq.api_key);
             self.lq.api_key_last_saved.clone_from(&self.lq.api_key);
@@ -98,7 +96,6 @@ impl AppState {
         // Compute values that borrow &self before taking &mut self.settings
         let section_id = self.current_section().id.to_owned();
 
-        // Write directly to settings data — no clones needed
         let s = self.settings.data_mut();
         s.browse_section = section_id;
         s.last_view = match self.current_view {
@@ -115,7 +112,7 @@ impl AppState {
             LibrarySortMode::Title => "title",
         }
         .to_owned();
-        s.lingq_api_key.clear(); // API key stored separately
+        s.lingq_api_key.clear();
         s.lingq_collection_id = self.lq.selected_collection;
         s.browse_only_new = self.browse.only_new;
         s.browse_date_from.clone_from(&self.browse.date_from);
@@ -237,7 +234,7 @@ impl AppState {
             return;
         };
 
-        // ── Scalar properties (always synced — cheap) ──
+        // Scalar properties.
         window.set_page_index(match self.current_view {
             View::Browse => 0,
             View::Library => 1,
@@ -279,7 +276,7 @@ impl AppState {
         window.set_preview_wide(self.library.preview_wide);
         window.set_site_search_query(self.browse.search_query.clone().into());
 
-        // ── Browse models (only rebuilt when browse data changes) ──
+        // Browse models.
         if self.dirty.browse {
             let browse_section_labels = self
                 .sections
@@ -342,7 +339,7 @@ impl AppState {
             window.set_bulk_sections_label(format!("Sections ({})", bulk_count).into());
         }
 
-        // ── Stats cards ──
+        // Stats cards.
         if self.dirty.stats {
             let stat_cards = self
                 .stats
@@ -390,7 +387,7 @@ impl AppState {
             window.set_stat_cards(ModelRc::from(Rc::new(VecModel::from(stat_cards))));
         }
 
-        // ── Library models (only rebuilt when library data or selection changes) ──
+        // Library models.
         if self.dirty.library {
             self.library.cached_heading_labels = self.heading_labels();
             self.library.cached_section_labels = self.section_labels();
@@ -474,7 +471,7 @@ impl AppState {
             });
         }
 
-        // ── Preview pane ──
+        // Preview pane.
         if self.dirty.preview || self.dirty.library {
             if let Some(article) = &self.library.preview_article {
                 window.set_preview_has_article(true);
@@ -503,7 +500,7 @@ impl AppState {
                 // clean_text otherwise.
                 let body = if !article.transcript_text.trim().is_empty() {
                     format!(
-                        "[Transcript — {}]\n\n{}",
+                        "[Transcript - {}]\n\n{}",
                         if article.transcript_source.is_empty() {
                             "manual"
                         } else {
@@ -527,7 +524,7 @@ impl AppState {
             }
         }
 
-        // ── Collections ──
+        // Collections.
         if self.dirty.collections {
             let mut collection_labels = vec![SharedString::from("No course selected")];
             collection_labels.extend(self.lq.collections.iter().map(|collection| {
@@ -551,7 +548,7 @@ impl AppState {
             window.set_lingq_collection_index(collection_index as i32);
         }
 
-        // ── Progress bar (always synced — cheap and changes frequently) ──
+        // Progress bar.
         window.set_progress_visible(self.progress.is_some() || self.save_progress.is_some());
         let active_progress = self.progress.as_ref().or(self.save_progress.as_ref());
         let progress_value = active_progress
@@ -571,7 +568,6 @@ impl AppState {
         );
         window.set_progress_value(progress_value);
 
-        // Clear all dirty flags after sync
         self.dirty.clear();
     }
 }

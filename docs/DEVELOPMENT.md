@@ -1,6 +1,6 @@
 # Development Guide
 
-This project is a Rust desktop app. The GUI is built with Slint, async
+DLF LingQ Reader is a Rust desktop app. The GUI is built with Slint, async
 networking uses Tokio and Reqwest, and local storage uses SQLite through
 Rusqlite.
 
@@ -47,7 +47,7 @@ The high-level map and rationale live in:
   database without coupling them directly to GUI code.
 - `src/gui/` owns Slint state, callbacks, event handling, and syncing state to
   the UI.
-- `src/main.rs` is intentionally small and only launches the GUI.
+- `src/main.rs` stays small and only launches the GUI.
 
 The intended dependency direction is:
 
@@ -57,9 +57,8 @@ GUI
     -> deutschlandfunk / lingq / transcribe / database
 ```
 
-Try to keep HTTP parsing, database writes, and GUI event handling separated.
-That makes it easier to test parser and upload behavior without launching the
-desktop app.
+Keep HTTP parsing, database writes, and GUI event handling separated. That makes
+parser and upload behavior testable without launching the desktop app.
 
 ## Testing Strategy
 
@@ -105,7 +104,7 @@ The public installer file is:
 installer\output\dlf-lingq-reader-setup.exe
 ```
 
-The executable inside the installer intentionally remains:
+The executable inside the installer remains:
 
 ```text
 deutschlandfunk_lingq_tool.exe
@@ -126,4 +125,4 @@ Keep `deutschlandfunk_lingq_tool` for:
 - app-data directory
 - SQLite database filename
 
-That compatibility split is intentional.
+That compatibility split protects existing installations.

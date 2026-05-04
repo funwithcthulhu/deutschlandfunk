@@ -1,8 +1,8 @@
 # Architecture
 
-DLF LingQ Reader is intentionally GUI-first. `src/main.rs` only starts the
-Slint app; workflows live below the GUI boundary so parsing, storage, uploads,
-audio, and transcription can be tested without launching a window.
+DLF LingQ Reader is GUI-first. `src/main.rs` starts the Slint app; workflows
+live below the GUI boundary so parsing, storage, uploads, audio, and
+transcription can be tested without launching a window.
 
 ```mermaid
 flowchart TD
@@ -36,7 +36,7 @@ flowchart TD
 
 ## Reliability Defaults
 
-- GUI background jobs run through a bounded limiter so bulk work cannot stampede
+- GUI background jobs run through a bounded limiter so bulk work cannot saturate
   the runtime.
 - Deutschlandfunk requests are rate-limited and concurrency-limited.
 - Browse/search discovery results are cached briefly to avoid refetching the

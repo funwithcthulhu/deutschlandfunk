@@ -3,9 +3,9 @@ use super::model::Section;
 pub(super) const BASE_URL: &str = "https://www.deutschlandfunk.de";
 pub(super) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
-/// Builtin Deutschlandfunk section landing pages. URLs verified against
-/// deutschlandfunk.de. If a future redesign breaks one, verify the affected
-/// landing URL in the app or with a focused parser test before updating here.
+/// Built-in Deutschlandfunk section landing pages verified against
+/// deutschlandfunk.de. When a landing URL changes, confirm the replacement in
+/// the app or with a focused parser test before updating this list.
 pub const SECTIONS: &[Section] = &[
     Section {
         id: "startseite",

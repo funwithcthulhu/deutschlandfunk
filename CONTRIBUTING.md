@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for helping polish DLF LingQ Reader. This project is small enough that
-clear, focused changes are much easier to review than broad rewrites.
+DLF LingQ Reader is small enough that clear, focused changes are easier to
+review than broad rewrites.
 
 ## Local Checks
 

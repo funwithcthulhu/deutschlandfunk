@@ -38,13 +38,13 @@ The LingQ token is stored separately from `settings.json` in:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\lingq_token
 ```
 
-The UI should show whether a token exists, but it should not display the token
-value after saving. Diagnostics report token presence only.
+The UI shows whether a token exists, but it does not display the token value
+after saving. Diagnostics report token presence only.
 
 ## Diagnostics
 
 Diagnostics exports are redacted. They include app health, schema version,
-counts, configured paths, and whether a LingQ token is present. They should not
+counts, configured paths, and whether a LingQ token is present. They do not
 include LingQ tokens, passwords, or article body text.
 
 Review a diagnostics bundle before sharing it publicly if your local paths or

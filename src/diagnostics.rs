@@ -195,7 +195,8 @@ mod tests {
     #[test]
     fn health_report_does_not_include_token_value() {
         let db = Database::open(Path::new(":memory:")).unwrap();
-        let settings = SettingsStore::in_memory_default();
+        let mut settings = SettingsStore::in_memory_default();
+        settings.data_mut().lingq_api_key = "secret-token".to_owned();
 
         let report = health_report(&db, settings.data(), true);
 

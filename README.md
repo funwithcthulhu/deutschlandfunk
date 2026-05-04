@@ -26,8 +26,8 @@ Deutschlandradio, Deutschlandfunk, or LingQ.
 
 ## Naming And Compatibility
 
-The public project name is **DLF LingQ Reader** and the intended GitHub repo
-name is `dlf-lingq-reader`.
+The public project name is **DLF LingQ Reader** and the GitHub repository is
+`dlf-lingq-reader`.
 
 For compatibility, the Rust package, executable, and app-data directory remain:
 
@@ -36,8 +36,8 @@ deutschlandfunk_lingq_tool
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\
 ```
 
-Do not rename those lightly. They are how existing installations find the
-current database, settings, audio folder, and LingQ token.
+Changing those identifiers requires a migration plan. Existing installations
+use them to find the current database, settings, audio folder, and LingQ token.
 
 ## Quick Start
 
@@ -47,7 +47,7 @@ Run the GUI from source:
 cargo run
 ```
 
-The first useful flow is:
+Basic workflow:
 
 1. Open the app.
 2. Choose a Browse section and click Refresh.
@@ -143,4 +143,5 @@ scripts/
 
 ## License
 
-No open-source license has been selected yet. See [LICENSE](LICENSE).
+This is a source-available, all-rights-reserved project. See
+[LICENSE](LICENSE).

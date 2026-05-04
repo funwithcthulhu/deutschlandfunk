@@ -19,8 +19,8 @@ folder in:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\
 ```
 
-That path intentionally keeps the old internal name so existing installations
-continue to work after the public rename to DLF LingQ Reader.
+That path keeps the old internal name so existing installations continue to work
+after the public rename to DLF LingQ Reader.
 
 ## Browse
 

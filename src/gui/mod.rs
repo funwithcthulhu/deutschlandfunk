@@ -28,8 +28,6 @@ use tokio::{runtime::Runtime, sync::Semaphore};
 
 slint::include_modules!();
 
-// ── Types ──
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
     Browse,
@@ -195,9 +193,9 @@ struct LibraryState {
     show_upload_tools: bool,
     delete_confirm_id: Option<i64>,
     preview_wide: bool,
-    /// Cached heading labels derived from articles — rebuilt when dirty.library is set.
+    /// Cached heading labels derived from articles; rebuilt when dirty.library is set.
     cached_heading_labels: Vec<String>,
-    /// Cached section labels derived from articles — rebuilt when dirty.library is set.
+    /// Cached section labels derived from articles; rebuilt when dirty.library is set.
     cached_section_labels: Vec<String>,
 }
 
@@ -223,7 +221,6 @@ struct LingqState {
 }
 
 struct AppState {
-    // ── Infrastructure ──
     window: Weak<AppWindow>,
     tx: Sender<AppEvent>,
     rx: Receiver<AppEvent>,
@@ -249,14 +246,11 @@ struct AppState {
     /// start of each new batch and on a manual retry-all.
     last_failed_urls: Vec<String>,
 
-    // ── Page state ──
     browse: BrowseState,
     bulk: BulkFetchState,
     library: LibraryState,
     lq: LingqState,
 }
-
-// ── Core AppState helpers ──
 
 impl AppState {
     /// Mark library + preview dirty and update selected article.
@@ -264,7 +258,6 @@ impl AppState {
     fn select_article(&mut self, id: Option<i64>) {
         self.library.selected_article_id = id;
         self.library.delete_confirm_id = None;
-        // Load full article text for preview (single-row lookup by PK — fast)
         self.library.preview_article =
             id.and_then(|article_id| match self.db.get_article(article_id) {
                 Ok(article) => article,
@@ -317,8 +310,6 @@ impl AppState {
         self.sync_to_window();
     }
 }
-
-// ── Entry point ──
 
 pub fn run() -> anyhow::Result<()> {
     info!("Starting GUI");
@@ -531,14 +522,12 @@ pub fn run() -> anyhow::Result<()> {
 
     let result = window.run();
 
-    // Signal all background tasks to stop
     if let Ok(app) = state.try_borrow() {
         app.shutdown_flag.store(true, Ordering::Relaxed);
         // Also trip the cancel flag so in-flight loops exit promptly
         app.cancel_flag.store(true, Ordering::Relaxed);
     }
 
-    // Give background tasks a moment to finish cleanly
     std::thread::sleep(std::time::Duration::from_millis(200));
 
     result.context("application window failed")
@@ -561,8 +550,6 @@ fn run_startup_error(window: &AppWindow, message: String) -> anyhow::Result<()> 
     ]))));
     window.run().context("startup error window failed")
 }
-
-// ── Free helper functions ──
 
 fn format_failure_suffix(failed: &[String]) -> String {
     if failed.is_empty() {
@@ -685,8 +672,6 @@ fn indexed_label(labels: &[String], index: i32) -> String {
 mod tests {
     use super::*;
 
-    // ── parse_positive_usize_input ──
-
     #[test]
     fn parse_positive_usize_valid() {
         assert_eq!(parse_positive_usize_input("42", "limit").unwrap(), 42);
@@ -712,8 +697,6 @@ mod tests {
         assert_eq!(parse_positive_usize_input("  10  ", "limit").unwrap(), 10);
     }
 
-    // ── parse_optional_i64 ──
-
     #[test]
     fn parse_optional_i64_valid() {
         assert_eq!(parse_optional_i64("100").unwrap(), Some(100));
@@ -728,8 +711,6 @@ mod tests {
     fn parse_optional_i64_invalid() {
         assert!(parse_optional_i64("abc").is_err());
     }
-
-    // ── parse_date_input ──
 
     #[test]
     fn parse_date_input_valid() {
@@ -746,8 +727,6 @@ mod tests {
     fn parse_date_input_bad_format() {
         assert!(parse_date_input("24/03/2025").is_err());
     }
-
-    // ── parse_article_date ──
 
     #[test]
     fn parse_article_date_iso() {
@@ -772,8 +751,6 @@ mod tests {
         assert!(parse_article_date("not a date").is_none());
     }
 
-    // ── section_heading ──
-
     #[test]
     fn section_heading_strips_suffix() {
         assert_eq!(section_heading("Politik - Inland"), "Politik");
@@ -783,8 +760,6 @@ mod tests {
     fn section_heading_no_separator() {
         assert_eq!(section_heading("Kultur"), "Kultur");
     }
-
-    // ── format_failure_suffix ──
 
     #[test]
     fn format_failure_suffix_empty() {
@@ -805,8 +780,6 @@ mod tests {
         assert!(result.contains("5 failed"));
         assert!(result.contains("+2 more"));
     }
-
-    // ── format_upload_status ──
 
     #[test]
     fn format_upload_status_new_uploads() {
@@ -831,8 +804,6 @@ mod tests {
         assert!(result.contains("Updated 1 existing LingQ lesson(s)"));
         assert!(result.contains("1 failed"));
     }
-
-    // ── index_of_label / indexed_label ──
 
     #[test]
     fn index_of_label_found() {
@@ -863,8 +834,6 @@ mod tests {
         let labels = vec!["A".to_owned()];
         assert_eq!(indexed_label(&labels, 99), "A");
     }
-
-    // ── LibrarySortMode ──
 
     #[test]
     fn sort_mode_roundtrip() {

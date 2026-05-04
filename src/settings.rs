@@ -163,8 +163,6 @@ impl SettingsStore {
     }
 }
 
-// ── Separate API key storage ──
-//
 // The LingQ API key is stored in its own file rather than in settings.json
 // to reduce exposure. On Linux/macOS the file gets restricted permissions (0600).
 // If the OS keyring crate becomes available, this can be upgraded to use it.
@@ -222,11 +220,9 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_settings.json");
 
-        // Save non-default settings
         let store = SettingsStore::load(path.clone()).unwrap();
         store.save().unwrap();
 
-        // Update and re-save
         let mut store = SettingsStore::load(path.clone()).unwrap();
         store
             .update(|s| {
@@ -238,7 +234,6 @@ mod tests {
             })
             .unwrap();
 
-        // Reload and verify
         let loaded = SettingsStore::load(path.clone()).unwrap();
         let d = loaded.data();
         assert_eq!(d.browse_section, "kultur");

@@ -363,7 +363,6 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
         app.run_site_search();
     });
 
-    // Cancel running background operation
     let state_clone = state.clone();
     window.on_cancel_operation(move || {
         let app = state_clone.borrow();
@@ -430,7 +429,6 @@ pub(super) fn wire_callbacks(window: &AppWindow, state: &Rc<RefCell<AppState>>) 
         }
     });
 
-    // Toggle preview pane width
     let state_clone = state.clone();
     window.on_toggle_preview_width(move || {
         let mut app = state_clone.borrow_mut();

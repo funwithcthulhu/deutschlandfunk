@@ -42,16 +42,16 @@ const UPSERT_SET: &str = r#"
     sophora_id = excluded.sophora_id
 "#;
 
-/// All columns for a full StoredArticle row (unqualified — for single-table queries).
+/// All columns for a full StoredArticle row, unqualified for single-table queries.
 const SELECT_ALL_COLS: &str = "id, url, title, subtitle, author, date, section, clean_text, word_count, difficulty, fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, paywalled, audio_url, audio_download_url, audio_local_path, audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id, transcript_text, transcript_source";
 
-/// All columns for a full StoredArticle row (table-qualified — for JOIN queries).
+/// All columns for a full StoredArticle row, table-qualified for JOIN queries.
 const SELECT_ALL_COLS_A: &str = "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.clean_text, a.word_count, a.difficulty, a.fetched_at, a.uploaded_to_lingq, a.lingq_lesson_id, a.lingq_lesson_url, a.paywalled, a.audio_url, a.audio_download_url, a.audio_local_path, a.audio_duration_seconds, a.audio_size_bytes, a.audio_kicker, a.sophora_id, a.transcript_text, a.transcript_source";
 
 /// Metadata-only columns for StoredArticleMeta (no clean_text).
 const SELECT_META_COLS: &str = "id, url, title, subtitle, author, date, section, word_count, difficulty, fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, paywalled, audio_url, audio_download_url, audio_local_path, audio_duration_seconds";
 
-/// Metadata-only columns (table-qualified — for JOIN queries).
+/// Metadata-only columns, table-qualified for JOIN queries.
 const SELECT_META_COLS_A: &str = "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.word_count, a.difficulty, a.fetched_at, a.uploaded_to_lingq, a.lingq_lesson_id, a.lingq_lesson_url, a.paywalled, a.audio_url, a.audio_download_url, a.audio_local_path, a.audio_duration_seconds";
 
 #[derive(Debug, Clone)]
@@ -91,7 +91,7 @@ impl StoredArticle {
         !self.transcript_text.trim().is_empty()
     }
 
-    /// The text body to upload to LingQ — prefer the full transcript if one
+    /// The text body to upload to LingQ. Prefer the full transcript if one
     /// has been generated, otherwise fall back to clean_text (lede etc.).
     pub fn upload_text(&self) -> &str {
         if self.has_transcript() {
@@ -102,7 +102,7 @@ impl StoredArticle {
     }
 }
 
-/// Lightweight article metadata for list display — excludes clean_text
+/// Lightweight article metadata for list display. Excludes clean_text
 /// to avoid loading megabytes of text when only metadata columns are needed.
 #[derive(Debug, Clone)]
 pub struct StoredArticleMeta {
@@ -171,9 +171,9 @@ pub struct ArticleQuery {
 }
 
 pub struct Database {
-    /// Write connection — used for INSERT, UPDATE, DELETE, and migrations.
+    /// Write connection used for INSERT, UPDATE, DELETE, and migrations.
     write_conn: Mutex<Connection>,
-    /// Read-only connection — used for SELECT queries. WAL mode allows
+    /// Read-only connection used for SELECT queries. WAL mode allows
     /// readers to proceed concurrently with a writer.
     read_conn: Mutex<Connection>,
 }
@@ -234,14 +234,14 @@ impl Database {
     /// Acquire the write connection.
     fn conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.write_conn.lock().map_err(|_| {
-            anyhow::anyhow!("database write mutex poisoned — a background thread likely panicked")
+            anyhow::anyhow!("database write mutex poisoned; a background thread likely panicked")
         })
     }
 
     /// Acquire the read-only connection (does not block writers).
     fn read(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.read_conn.lock().map_err(|_| {
-            anyhow::anyhow!("database read mutex poisoned — a background thread likely panicked")
+            anyhow::anyhow!("database read mutex poisoned; a background thread likely panicked")
         })
     }
 
@@ -283,7 +283,7 @@ impl Database {
     }
 
     /// Set the local file path for an article's downloaded audio. Only the
-    /// path is updated — other audio metadata is left untouched.
+    /// path is updated; other audio metadata is left untouched.
     pub fn set_audio_local_path(&self, id: i64, path: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
@@ -584,8 +584,8 @@ impl Database {
     }
 
     pub fn delete_article(&self, id: i64) -> Result<()> {
-        // Capture audio path BEFORE the row is gone, so we can clean up the
-        // local MP3 alongside the article record.
+        // Capture the audio path before deleting the row so the local MP3 can
+        // be removed with the article record.
         let audio_path: Option<String> = self
             .read()?
             .query_row(
@@ -602,8 +602,8 @@ impl Database {
         }
         drop(conn);
 
-        // Best-effort: remove the local MP3 if one was tracked. We don't fail
-        // the whole operation on a filesystem hiccup — the DB row is gone.
+        // Remove the local MP3 if one was tracked. A filesystem error should
+        // not roll back the database deletion.
         if let Some(path) = audio_path.filter(|p| !p.trim().is_empty()) {
             match std::fs::remove_file(&path) {
                 Ok(()) => log::info!("removed orphan audio file {path}"),
@@ -611,20 +611,6 @@ impl Database {
                 Err(err) => log::warn!("could not remove audio file {path}: {err}"),
             }
         }
-        Ok(())
-    }
-
-    /// Run PRAGMA integrity_check and return the result string.
-    pub fn integrity_check(&self) -> Result<String> {
-        let result: String = self
-            .read()?
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
-        Ok(result)
-    }
-
-    /// Reclaim unused space in the database file.
-    pub fn vacuum(&self) -> Result<()> {
-        self.conn()?.execute_batch("VACUUM")?;
         Ok(())
     }
 
@@ -1413,8 +1399,6 @@ fn json_escape(value: &str) -> String {
 mod tests {
     use super::*;
 
-    // ── sanitize_fts_query ──
-
     #[test]
     fn sanitize_fts_plain_words() {
         assert_eq!(sanitize_fts_query("hello world"), r#""hello" "world""#);
@@ -1455,8 +1439,6 @@ mod tests {
     fn sanitize_fts_preserves_german_chars() {
         assert_eq!(sanitize_fts_query("Über Straße"), r#""Über" "Straße""#);
     }
-
-    // ── Database integration ──
 
     #[test]
     fn save_and_retrieve_article() {
@@ -1551,7 +1533,6 @@ mod tests {
             .unwrap();
         assert_eq!(success_events, 1);
 
-        // only_not_uploaded should exclude it
         let results = db
             .list_articles(&ArticleQuery {
                 only_not_uploaded: true,
@@ -1801,8 +1782,6 @@ mod tests {
         assert_eq!(upload_count, 1);
     }
 
-    // ── Batch save ──
-
     fn make_article(url: &str, title: &str) -> Article {
         Article {
             url: url.to_owned(),
@@ -1847,7 +1826,7 @@ mod tests {
         assert_eq!(saved, 2); // Both succeed (second is an upsert)
 
         let stats = db.get_stats().unwrap();
-        assert_eq!(stats.total_articles, 1); // Only one unique article
+        assert_eq!(stats.total_articles, 1);
     }
 
     #[test]
@@ -1856,8 +1835,6 @@ mod tests {
         let saved = db.save_articles_batch(&[]).unwrap();
         assert_eq!(saved, 0);
     }
-
-    // ── Export ──
 
     #[test]
     fn export_csv_includes_header_and_data() {
@@ -1875,9 +1852,11 @@ mod tests {
         db.save_article(&make_article("https://taz.de/a/!1/", "JSON Test"))
             .unwrap();
         let json = db.export_json().unwrap();
-        assert!(json.starts_with('['));
-        assert!(json.ends_with(']'));
-        assert!(json.contains("\"JSON Test\""));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let rows = parsed.as_array().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["title"], "JSON Test");
     }
 
     #[test]
@@ -1903,8 +1882,6 @@ mod tests {
         );
         assert!(stored.has_audio());
     }
-
-    // ── csv_escape / json_escape ──
 
     #[test]
     fn csv_escape_wraps_commas() {

@@ -20,5 +20,5 @@ LingQ tokens are stored locally in:
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\lingq_token
 ```
 
-The app should never print or display the token value. UI diagnostics may show
+The app must not print or display the token value. UI diagnostics may show
 connection state, but not the saved token itself.

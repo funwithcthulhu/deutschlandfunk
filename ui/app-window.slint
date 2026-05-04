@@ -14,7 +14,6 @@ component Panel inherits Rectangle {
     border-radius: 12px;
 }
 
-// Small text button for inline actions
 component TextBtn inherits Rectangle {
     in property <string> label;
     in property <brush> text-color: #f0a87a;
@@ -27,7 +26,6 @@ component TextBtn inherits Rectangle {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
-// Tiny preset button for date range shortcuts
 component PresetBtn inherits Rectangle {
     in property <string> label;
     callback clicked;
@@ -110,7 +108,7 @@ export component AppWindow inherits Window {
     in-out property <bool> upload-audio-to-lingq: true;
     in-out property <string> audio-dir: "";
 
-    // Whisper transcription settings (optional — leave blank to disable)
+    // Whisper transcription settings. Leave blank to disable.
     in-out property <string> whisper-cli-path: "";
     in-out property <string> whisper-model-path: "";
     in-out property <string> whisper-language: "de";
@@ -168,7 +166,6 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             spacing: 0px;
 
-            // ── Sidebar ──
             Rectangle {
                 width: 210px;
                 background: #221d23;
@@ -189,7 +186,6 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Browse nav button with badge
                     Panel {
                         height: 40px;
                         panel-background: root.page-index == 0 ? #4a2218 : (browse-nav-ta.has-hover ? #2c241f : #2a2329);
@@ -213,7 +209,6 @@ export component AppWindow inherits Window {
                         browse-nav-ta := TouchArea { mouse-cursor: pointer; clicked => { root.switch-page(0); } }
                     }
 
-                    // Library nav button with badge
                     Panel {
                         height: 40px;
                         panel-background: root.page-index == 1 ? #4a2218 : (library-nav-ta.has-hover ? #2c241f : #2a2329);
@@ -237,7 +232,7 @@ export component AppWindow inherits Window {
                         library-nav-ta := TouchArea { mouse-cursor: pointer; clicked => { root.switch-page(1); } }
                     }
 
-                    // Audio nav button — same library view filtered to audio-bearing items
+                    // Audio uses the library view filtered to audio-bearing items.
                     Panel {
                         height: 40px;
                         panel-background: root.page-index == 2 ? #4a2218 : (audio-nav-ta.has-hover ? #2c241f : #2a2329);
@@ -327,7 +322,6 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // ── Main content area ──
             Rectangle {
                 horizontal-stretch: 1;
                 background: #16141a;
@@ -337,15 +331,11 @@ export component AppWindow inherits Window {
                     padding: 10px;
                     spacing: 6px;
 
-                    // ════════════════════════════════════
-                    //  BROWSE PAGE
-                    // ════════════════════════════════════
                     if root.page-index == 0 : VerticalLayout {
                         spacing: 6px;
                         horizontal-stretch: 1;
                         vertical-stretch: 1;
 
-                        // Browse toolbar — single row
                         Panel {
                             height: 56px;
                             clip: true;
@@ -367,7 +357,6 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // taz Search
                         Panel {
                             height: 40px;
                             clip: true;
@@ -387,7 +376,6 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // Bulk Fetch
                         Panel {
                             height: root.show-bulk-sections ? 140px : 66px;
                             clip: true;
@@ -415,7 +403,6 @@ export component AppWindow inherits Window {
                                     Button { text: "Fetch"; clicked => { root.browse-run-bulk-fetch(); } }
                                     Rectangle { }
                                 }
-                                // Date preset shortcuts
                                 HorizontalLayout {
                                     spacing: 4px;
                                     Text { text: "Quick:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
@@ -427,7 +414,6 @@ export component AppWindow inherits Window {
                                     Rectangle { horizontal-stretch: 1; }
                                     CheckBox { text: "Auto-fetch on startup"; checked <=> root.auto-fetch-on-startup; }
                                 }
-                                // Audio settings (Deutschlandfunk-specific)
                                 HorizontalLayout {
                                     spacing: 8px;
                                     Text { text: "Audio:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
@@ -448,8 +434,7 @@ export component AppWindow inherits Window {
                                         horizontal-stretch: 1;
                                     }
                                 }
-                                // Whisper transcription paths — optional. When both
-                                // are filled the per-row "Transcribe" button works.
+                                // Whisper transcription paths. Both fields are required.
                                 HorizontalLayout {
                                     spacing: 4px;
                                     Text { text: "Whisper CLI:"; color: #897e72; font-size: 10px; vertical-alignment: center; }
@@ -501,7 +486,6 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // Browse article list
                         Panel {
                             horizontal-stretch: 1;
                             vertical-stretch: 1;
@@ -513,7 +497,6 @@ export component AppWindow inherits Window {
                                     padding: 6px;
                                     spacing: 5px;
 
-                                    // Empty state
                                     if root.browse-rows.length == 0 : Rectangle {
                                         height: 80px;
                                         VerticalLayout {
@@ -535,7 +518,6 @@ export component AppWindow inherits Window {
                                             VerticalLayout {
                                                 horizontal-stretch: 1;
                                                 spacing: 2px;
-                                                // Title row with metadata inline
                                                 HorizontalLayout {
                                                     spacing: 8px;
                                                     Text { text: article.title; color: white; font-size: 14px; font-weight: 750; horizontal-stretch: 1; overflow: elide; }
@@ -544,7 +526,6 @@ export component AppWindow inherits Window {
                                                 }
                                                 Text { text: article.teaser; color: #b09d8d; font-size: 12px; wrap: word-wrap; }
                                             }
-                                            // Compact action column
                                             VerticalLayout {
                                                 spacing: 2px;
                                                 alignment: center;
@@ -558,15 +539,11 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // ════════════════════════════════════
-                    //  LIBRARY + LINGQ PAGE
-                    // ════════════════════════════════════
                     if root.page-index == 1 || root.page-index == 2 : VerticalLayout {
                         spacing: 6px;
                         horizontal-stretch: 1;
                         vertical-stretch: 1;
 
-                        // Library filters — always visible, single row
                         Panel {
                             height: 38px;
                             HorizontalLayout {
@@ -587,7 +564,6 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // LingQ upload — always visible, single row
                         Panel {
                             height: 38px;
                             HorizontalLayout {
@@ -646,13 +622,11 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // Library article list + preview split
                         HorizontalLayout {
                             horizontal-stretch: 1;
                             vertical-stretch: 1;
                             spacing: 6px;
 
-                            // Article list
                             Panel {
                                 horizontal-stretch: 1;
                                 vertical-stretch: 1;
@@ -674,7 +648,6 @@ export component AppWindow inherits Window {
                                         return reject;
                                     }
                                 }
-                                // Click anywhere in the list to grab focus
                                 TouchArea { clicked => { library-focus.focus(); } }
                                 ScrollView {
                                     width: parent.width;
@@ -683,7 +656,6 @@ export component AppWindow inherits Window {
                                         padding: 6px;
                                         spacing: 4px;
 
-                                        // Empty state
                                         if root.library-rows.length == 0 : Rectangle {
                                             height: 80px;
                                             VerticalLayout {
@@ -701,7 +673,6 @@ export component AppWindow inherits Window {
                                             HorizontalLayout {
                                                 padding: 6px;
                                                 spacing: 6px;
-                                                // Viewing accent bar
                                                 if article.viewing : Rectangle {
                                                     width: 3px;
                                                     border-radius: 2px;
@@ -724,7 +695,7 @@ export component AppWindow inherits Window {
                                                             Text { text: article.date; color: #a89786; font-size: 11px; vertical-alignment: center; }
                                                             if article.paywalled : Text { text: "Paywall"; color: #e76f51; font-size: 11px; font-weight: 700; vertical-alignment: center; }
                                                             Text { text: article.uploaded ? "LingQ" : "Local"; color: article.uploaded ? #7ce2a4 : #bcaa9a; font-size: 11px; vertical-alignment: center; }
-                                                            // Audio status badge — only shown when audio is attached
+                                                            // Audio status badge.
                                                             if article.has-audio : Text {
                                                                 text: article.audio-downloaded
                                                                     ? "♪ " + article.audio-duration
@@ -738,7 +709,6 @@ export component AppWindow inherits Window {
                                                     }
                                                     TouchArea { mouse-cursor: pointer; clicked => { root.library-select-article(index); } }
                                                 }
-                                                // Compact inline actions
                                                 VerticalLayout {
                                                     spacing: 1px;
                                                     alignment: center;
@@ -771,7 +741,6 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            // Preview pane
                             Panel {
                                 width: root.preview-wide ? 520px : 380px;
                                 animate width { duration: 200ms; easing: ease-in-out; }
@@ -818,10 +787,8 @@ export component AppWindow inherits Window {
             }
         }
 
-        // ── LingQ Settings Modal ──
         if root.show-lingq-settings : Rectangle {
             background: #00000088;
-            // Backdrop click-to-close
             TouchArea {
                 clicked => { root.lingq-close-settings(); }
             }
@@ -833,7 +800,7 @@ export component AppWindow inherits Window {
                     y: 48px;
                     panel-background: #231f26;
                     panel-border: #3a3038;
-                    // Block clicks from propagating to backdrop
+                    // Block clicks from propagating to the backdrop.
                     TouchArea { }
                     VerticalLayout {
                         padding: 18px;

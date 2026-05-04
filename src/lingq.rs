@@ -407,12 +407,12 @@ fn audio_path_for_upload(request: &UploadRequest) -> Option<PathBuf> {
 /// If we sent audio but the LingQ response came back without an `audio`
 /// field, the server likely silently dropped it (wrong content-type, file
 /// too large, lesson type mismatch, etc.). We can't surface a hard error
-/// because the lesson itself was created — but we leave a log line so the
-/// user can debug from the GUI status bar / cargo log output.
+/// because the lesson itself was created. Log the mismatch so the user can
+/// diagnose it from runtime logs.
 fn warn_if_audio_dropped(request: &UploadRequest, lesson_id: i64, audio_url: Option<&str>) {
     if audio_path_for_upload(request).is_some() && audio_url.map(str::is_empty).unwrap_or(true) {
         log::warn!(
-            "LingQ accepted lesson {} but did not store the attached audio file — \
+            "LingQ accepted lesson {} but did not store the attached audio file; \
              the upload may have been silently dropped (check file size / mime type).",
             lesson_id
         );

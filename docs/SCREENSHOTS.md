@@ -1,8 +1,7 @@
 # Screenshots
 
-Screenshots are useful for releases, bug reports, and documentation updates.
-Do not include LingQ tokens, passwords, private account details, or private
-local paths in screenshots.
+Use screenshots for releases, bug reports, and documentation updates. Do not
+include LingQ tokens, passwords, private account details, or private local paths.
 
 ## Suggested Release Screenshots
 

@@ -25,7 +25,7 @@ backups\                        Default database backup folder
 ## Schema Management
 
 The database has a legacy `schema_version` table and a newer
-`schema_migrations` ledger. New migrations should:
+`schema_migrations` ledger. Migration rules:
 
 1. Run inside an explicit transaction.
 2. Be safe for existing user databases.

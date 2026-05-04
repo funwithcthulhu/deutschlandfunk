@@ -1,12 +1,11 @@
 # Processing Pipeline
 
-This document describes how content moves through DLF LingQ Reader and where
-reliability checks happen.
+Content flow and reliability checks:
 
 ## Browse And Search
 
 1. The GUI asks `DeutschlandfunkClient` for a section or search page.
-2. Requests are concurrency-limited and lightly spaced to avoid stampedes.
+2. Requests are concurrency-limited and lightly spaced to avoid request bursts.
 3. Recent browse/search responses are cached briefly for repeated UI actions.
 4. HTML parsers extract summaries, dates, sections, article URLs, and audio
    candidates.

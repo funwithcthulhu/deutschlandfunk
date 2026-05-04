@@ -1,14 +1,11 @@
 # Design Decisions
 
-This file captures the reasoning behind important project choices. Keep entries
-short and practical; if a decision affects compatibility or user data, document
-the tradeoff here before changing it.
+Architectural choices that affect compatibility, user data, or release support
+belong here.
 
 ## GUI-Only App
 
 DLF LingQ Reader is a desktop GUI app, not a CLI plus GUI bundle.
-
-Rationale:
 
 - The user workflow is visual: browse articles, select rows, inspect upload
   state, download audio, and manage LingQ settings.
@@ -25,8 +22,6 @@ Repository name: `dlf-lingq-reader`.
 
 Compatibility name: `deutschlandfunk_lingq_tool`.
 
-Rationale:
-
 - Existing users already have app data under
   `%LOCALAPPDATA%\deutschlandfunk_lingq_tool\`.
 - Keeping the executable, Cargo package, database file, settings file, and token
@@ -38,19 +33,15 @@ Rationale:
 The app uses a local SQLite database instead of loose JSON files or a hosted
 backend.
 
-Rationale:
-
 - Article text, audio metadata, upload state, transcript history, and FTS search
   all fit SQLite well.
-- Offline use matters; users should keep control over their library.
+- Offline use matters; users keep control over their library.
 - Schema migrations let us evolve storage while preserving existing installs.
 
 ## Service Boundary Between GUI And Clients
 
-GUI code should call workflow services instead of directly orchestrating every
+GUI code calls workflow services instead of directly orchestrating every
 database, Deutschlandfunk, LingQ, audio, and transcription operation.
-
-Rationale:
 
 - Services are easier to test without launching Slint.
 - Error handling can stay close to the workflow that created the error.
@@ -58,11 +49,9 @@ Rationale:
 
 ## Redacted Diagnostics
 
-Diagnostics bundles should expose health and environment shape without exposing
-LingQ tokens or credentials.
-
-Rationale:
+Diagnostics bundles expose health and environment shape without exposing LingQ
+tokens or credentials.
 
 - Support needs schema version, paths, counts, and storage health.
-- Tokens are secrets and should never appear in logs, diagnostics, screenshots,
-  or issue templates.
+- Tokens are secrets and must not appear in logs, diagnostics, screenshots, or
+  issue templates.

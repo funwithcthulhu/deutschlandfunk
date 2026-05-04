@@ -1,7 +1,7 @@
 # Limitations And Edge Cases
 
 DLF LingQ Reader depends on two external sites and local desktop resources.
-These are the main known limitations.
+Known limitations:
 
 ## Deutschlandfunk Markup Can Change
 
@@ -35,5 +35,5 @@ built-in Backup DB action.
 
 ## Windows Is The Primary Target
 
-The code is Rust and mostly cross-platform, but the polished packaging workflow
-and installer are Windows-first.
+The code is Rust and mostly cross-platform, but packaging and installer testing
+are Windows-first.

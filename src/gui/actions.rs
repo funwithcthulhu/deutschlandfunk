@@ -175,7 +175,7 @@ impl AppState {
             return;
         }
         if !is_plausible_api_key(&self.lq.api_key) {
-            self.set_status("LingQ token looks invalid — expected 8+ alphanumeric characters.");
+            self.set_status("LingQ token looks invalid; expected 8+ alphanumeric characters.");
             return;
         }
         let api_key = self.lq.api_key.clone();
@@ -944,7 +944,6 @@ impl AppState {
                         self.lq.api_key = token;
                         self.lq.login_failures = 0;
                         self.lq.login_cooldown_until = None;
-                        // Clear password from memory after successful login
                         self.lq.password.clear();
                         self.save_settings();
                         self.load_collections();
@@ -1049,7 +1048,7 @@ impl AppState {
             match result {
                 Ok(bytes) => AppEvent::SaveFinished {
                     message: format!(
-                        "Saved audio for #{article_id} ({} bytes) → {dest_string}",
+                        "Saved audio for #{article_id} ({} bytes) -> {dest_string}",
                         bytes
                     ),
                     failed: Vec::new(),
@@ -1116,7 +1115,7 @@ impl AppState {
         };
 
         self.set_status(format!(
-            "Transcribing #{article_id} with {} (this can take a while)…",
+            "Transcribing #{article_id} with {} (this can take a while)...",
             cfg.source_tag()
         ));
         let db = self.db.clone();
@@ -1199,7 +1198,7 @@ impl AppState {
             return;
         }
         let path = std::path::PathBuf::from(&article.audio_local_path);
-        // We allow revealing even if the file vanished — we'll fall back to
+        // Allow revealing even if the file vanished; fall back to
         // showing the parent dir.
         let target = if path.exists() {
             path.clone()

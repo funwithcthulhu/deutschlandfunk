@@ -125,7 +125,7 @@ impl DeutschlandfunkClient {
                 continue;
             }
             if !discovered.iter().any(|(u, _): &(String, String)| *u == url) {
-                debug!("Discovered nav section: {label} → {url}");
+                debug!("Discovered nav section: {label} -> {url}");
                 discovered.push((url, label));
             }
         }
@@ -282,7 +282,7 @@ impl DeutschlandfunkClient {
         let html = self.fetch_html(url).await?;
         let document = Html::parse_document(&html);
 
-        // Parse the embedded js-client-queries scripts once — used by both
+        // Parse the embedded js-client-queries scripts once; the result feeds both
         // metadata fallbacks and audio extraction.
         let scripts = parse_client_queries(&document);
 
@@ -351,7 +351,7 @@ impl DeutschlandfunkClient {
 
         let word_count = body_text.split_whitespace().count();
 
-        // Threshold: short news flashes (1–2 sentences) are still valid
+        // Short news flashes (1-2 sentences) are valid
         // articles. Only reject totally empty extractions.
         let has_audio = !audio.is_empty();
         if word_count < 8 && !has_audio {
@@ -712,7 +712,7 @@ fn infer_section_from_url(url: &str) -> String {
     if path.is_empty() {
         return "Startseite".to_owned();
     }
-    // The slug usually ends with "-NNN.html" — strip and humanize
+    // The slug usually ends with "-NNN.html"; strip and humanize.
     let slug = path.trim_end_matches(".html");
     let slug = Regex::new(r"-\d+$").unwrap().replace(slug, "");
     slug.replace('-', " ")
