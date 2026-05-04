@@ -1,53 +1,49 @@
 # DLF LingQ Reader
 
-[![CI](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/funwithcthulhu/dlf-lingq-reader/actions/workflows/ci.yml)
+Personal Rust/Slint desktop tool for saving Deutschlandfunk articles locally and
+handling LingQ imports.
 
-Unofficial Windows-first desktop app for collecting articles and MP3 audio from
-`deutschlandfunk.de`, keeping them in a local SQLite library, and turning them
-into LingQ lessons.
+This is a personal utility, not an official app. I use it to collect text and
+optional MP3 audio from `deutschlandfunk.de`, keep that material in a local
+SQLite library, and push selected items into LingQ.
 
-This project is not affiliated with, endorsed by, or sponsored by
-Deutschlandradio, Deutschlandfunk, or LingQ.
+Not affiliated with Deutschlandradio, Deutschlandfunk, or LingQ.
 
 ## What It Does
 
-- Browse built-in Deutschlandfunk sections and save selected articles.
-- Search `deutschlandfunk.de/suche/` from the app.
-- Keep a local library with title, metadata, cleaned text, word count, audio
-  metadata, transcripts, and LingQ upload state.
-- Download article MP3 files into a configurable local folder.
-- Optionally transcribe downloaded audio with `whisper.cpp`.
-- Upload text-only or text-plus-audio lessons to LingQ.
-- Update existing LingQ lessons in place instead of creating duplicates.
-- Back up the SQLite database from the GUI.
-- View local database/app health, optimize SQLite, and export redacted
-  diagnostics.
-- Build a Windows installer with Inno Setup.
+- Browse or search Deutschlandfunk articles.
+- Save article text, metadata, audio info, transcripts, and LingQ upload state
+  in a local SQLite database.
+- Download article MP3s.
+- Optionally transcribe MP3s with `whisper.cpp`.
+- Upload selected articles to LingQ.
+- Update an existing LingQ lesson when the article already has a saved LingQ
+  lesson ID.
+- Back up the database from the GUI.
 
-## Naming And Compatibility
+## Compatibility
 
-The public project name is **DLF LingQ Reader** and the GitHub repository is
-`dlf-lingq-reader`.
-
-For compatibility, the Rust package, executable, and app-data directory remain:
+The repo/display name is **DLF LingQ Reader**, but the Rust package,
+executable, database, settings, token file, and app-data folder still use the
+old internal name:
 
 ```text
 deutschlandfunk_lingq_tool
 %LOCALAPPDATA%\deutschlandfunk_lingq_tool\
 ```
 
-Changing those identifiers requires a migration plan. Existing installations
-use them to find the current database, settings, audio folder, and LingQ token.
+Do not rename those without a migration plan, or existing local data may stop
+being found.
 
-## Quick Start
+## Run
 
-Run the GUI from source:
+From this folder:
 
 ```powershell
 cargo run
 ```
 
-Basic workflow:
+Typical use:
 
 1. Open the app.
 2. Choose a Browse section and click Refresh.
@@ -56,9 +52,7 @@ Basic workflow:
 5. Log in to LingQ or paste a token.
 6. Pick a LingQ course and upload selected articles.
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full GUI workflow.
-
-## Build And Test
+## Build/Test
 
 ```powershell
 cargo fmt --all -- --check
@@ -74,7 +68,7 @@ cargo build --release
 
 ## Windows Installer
 
-One-time prerequisite:
+Install Inno Setup once:
 
 ```powershell
 winget install JRSoftware.InnoSetup
@@ -95,50 +89,24 @@ installer\output\dlf-lingq-reader-setup.exe
 The installer display name is `DLF LingQ Reader`. The executable inside the
 installer remains `deutschlandfunk_lingq_tool.exe` for compatibility.
 
-## Documentation
+## Local Data
 
-- [User guide](docs/USER_GUIDE.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Design decisions](docs/DECISIONS.md)
-- [Processing pipeline](docs/PROCESSING.md)
-- [Development guide](docs/DEVELOPMENT.md)
-- [Database and storage](docs/DATABASE.md)
-- [Privacy](docs/PRIVACY.md)
-- [Limitations](docs/LIMITATIONS.md)
-- [Release checklist](docs/RELEASE.md)
-- [Screenshots](docs/SCREENSHOTS.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
-
-## Project Layout
+Default app data:
 
 ```text
-src/
-  audio.rs                Audio path helpers and size/duration formatting
-  database.rs             SQLite storage, migrations, backup, export, search
-  diagnostics.rs          Redacted health reports and diagnostics bundles
-  deutschlandfunk.rs      deutschlandfunk.de discovery and article extraction
-  deutschlandfunk/        Parser modules, selectors, sections, models
-  gui/                    Slint GUI state, callbacks, actions, sync
-  ids.rs                  Typed database identifiers
-  lingq.rs                LingQ login, course listing, upload/update client
-  main.rs                 GUI entry point
-  services/               Ingest, upload, and transcription workflows
-  settings.rs             Persistent app settings and LingQ token storage
-  transcribe.rs           Optional whisper.cpp integration
-tests/
-  fixtures/               Offline parser fixtures
-ui/
-  app-window.slint        Main Slint UI
-assets/
-  deutschlandfunk.ico     Embedded Windows app icon
-  deutschlandfunk.png     Window/taskbar icon
-installer/
-  deutschlandfunk-reader.iss   Inno Setup definition
-scripts/
-  build-installer.ps1     Release and installer build helper
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\
+```
+
+The LingQ token is stored locally at:
+
+```text
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\lingq_token
+```
+
+Downloaded MP3s default to:
+
+```text
+%LOCALAPPDATA%\deutschlandfunk_lingq_tool\audio\
 ```
 
 ## License
