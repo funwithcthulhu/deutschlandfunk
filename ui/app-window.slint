@@ -1,9 +1,45 @@
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
 
-export struct BrowseRow { title: string, teaser: string, section: string, source: string, source_label: string, url: string, selected: bool, saved: bool, has-audio-hint: bool }
-export struct BulkSectionRow { label: string, selected: bool }
-export struct LibraryRow { id: int, title: string, section: string, heading: string, date: string, words: string, difficulty: int, url: string, uploaded: bool, paywalled: bool, selected: bool, confirming-delete: bool, viewing: bool, has-audio: bool, audio-downloaded: bool, audio-duration: string }
-export struct StatCard { label: string, value: string }
+export struct BrowseRow {
+    title: string,
+    teaser: string,
+    section: string,
+    source: string,
+    source_label: string,
+    url: string,
+    selected: bool,
+    saved: bool,
+    has-audio-hint: bool,
+}
+
+export struct BulkSectionRow {
+    label: string,
+    selected: bool,
+}
+
+export struct LibraryRow {
+    id: int,
+    title: string,
+    section: string,
+    heading: string,
+    date: string,
+    words: string,
+    difficulty: int,
+    url: string,
+    uploaded: bool,
+    paywalled: bool,
+    selected: bool,
+    confirming-delete: bool,
+    viewing: bool,
+    has-audio: bool,
+    audio-downloaded: bool,
+    audio-duration: string,
+}
+
+export struct StatCard {
+    label: string,
+    value: string,
+}
 
 component Panel inherits Rectangle {
     in property <brush> panel-background: #1f1c22;
@@ -22,7 +58,14 @@ component TextBtn inherits Rectangle {
     width: btn-text.preferred-width + 12px;
     border-radius: 4px;
     background: ta.has-hover ? #ffffff10 : transparent;
-    btn-text := Text { text: root.label; color: ta.has-hover ? #ffffff : root.text-color; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    btn-text := Text {
+        text: root.label;
+        color: ta.has-hover ? #ffffff : root.text-color;
+        font-size: 11px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -33,7 +76,14 @@ component PresetBtn inherits Rectangle {
     width: btn-text.preferred-width + 10px;
     border-radius: 4px;
     background: ta.has-hover ? #ffffff10 : transparent;
-    btn-text := Text { text: root.label; color: ta.has-hover ? #e6dcce : #b09d8d; font-size: 10px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    btn-text := Text {
+        text: root.label;
+        color: ta.has-hover ? #e6dcce : #b09d8d;
+        font-size: 10px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -202,7 +252,16 @@ export component AppWindow inherits Window {
                                     height: 20px;
                                     border-radius: 10px;
                                     background: #5e2a1e;
-                                    browse-badge := Text { text: root.browse-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                    browse-badge := Text {
+                                        text: root.browse-count;
+                                        color: #f5c6a8;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
                         }
@@ -225,7 +284,16 @@ export component AppWindow inherits Window {
                                     height: 20px;
                                     border-radius: 10px;
                                     background: #5e2a1e;
-                                    library-badge := Text { text: root.library-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                    library-badge := Text {
+                                        text: root.library-count;
+                                        color: #f5c6a8;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
                         }
@@ -249,7 +317,16 @@ export component AppWindow inherits Window {
                                     height: 20px;
                                     border-radius: 10px;
                                     background: #5e2a1e;
-                                    audio-badge := Text { text: root.audio-count; color: #f5c6a8; font-size: 11px; font-weight: 700; width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center; }
+                                    audio-badge := Text {
+                                        text: root.audio-count;
+                                        color: #f5c6a8;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
                         }
@@ -293,7 +370,14 @@ export component AppWindow inherits Window {
                                     background: cancel-ta.has-hover ? #3a1520 : #2a1018;
                                     border-color: #e06070;
                                     border-width: 1px;
-                                    cancel-text := Text { text: "Cancel"; color: cancel-ta.has-hover ? #ff6070 : #e06070; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                    cancel-text := Text {
+                                        text: "Cancel";
+                                        color: cancel-ta.has-hover ? #ff6070 : #e06070;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                     cancel-ta := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-operation(); } }
                                 }
                                 Rectangle { }
@@ -688,13 +772,33 @@ export component AppWindow inherits Window {
                                                             Text { text: article.title; color: white; font-size: 13px; font-weight: 760; horizontal-stretch: 1; overflow: elide; }
                                                             Text { text: article.words + "w"; color: #a89786; font-size: 11px; vertical-alignment: center; }
                                                             Rectangle {
-                                                                width: 22px; height: 16px; border-radius: 4px;
-                                                                background: article.difficulty <= 1 ? #2d6a4f : article.difficulty == 2 ? #40916c : article.difficulty == 3 ? #e9c46a : article.difficulty == 4 ? #e76f51 : #d62828;
-                                                                Text { text: article.difficulty; color: article.difficulty <= 2 ? white : article.difficulty == 3 ? #1a1a2e : white; font-size: 10px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                                                                width: 22px;
+                                                                height: 16px;
+                                                                border-radius: 4px;
+                                                                background: article.difficulty <= 1 ? #2d6a4f
+                                                                    : article.difficulty == 2 ? #40916c
+                                                                    : article.difficulty == 3 ? #e9c46a
+                                                                    : article.difficulty == 4 ? #e76f51
+                                                                    : #d62828;
+                                                                Text {
+                                                                    text: article.difficulty;
+                                                                    color: article.difficulty <= 2 ? white
+                                                                        : article.difficulty == 3 ? #1a1a2e
+                                                                        : white;
+                                                                    font-size: 10px;
+                                                                    font-weight: 800;
+                                                                    horizontal-alignment: center;
+                                                                    vertical-alignment: center;
+                                                                }
                                                             }
                                                             Text { text: article.date; color: #a89786; font-size: 11px; vertical-alignment: center; }
                                                             if article.paywalled : Text { text: "Paywall"; color: #e76f51; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-                                                            Text { text: article.uploaded ? "LingQ" : "Local"; color: article.uploaded ? #7ce2a4 : #bcaa9a; font-size: 11px; vertical-alignment: center; }
+                                                            Text {
+                                                                text: article.uploaded ? "LingQ" : "Local";
+                                                                color: article.uploaded ? #7ce2a4 : #bcaa9a;
+                                                                font-size: 11px;
+                                                                vertical-alignment: center;
+                                                            }
                                                             // Audio status badge.
                                                             if article.has-audio : Text {
                                                                 text: article.audio-downloaded
@@ -750,7 +854,14 @@ export component AppWindow inherits Window {
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 6px;
-                                        Text { text: root.preview-has-article ? root.preview-title : "Reading pane"; color: white; font-size: 16px; font-weight: 800; wrap: word-wrap; horizontal-stretch: 1; }
+                                        Text {
+                                            text: root.preview-has-article ? root.preview-title : "Reading pane";
+                                            color: white;
+                                            font-size: 16px;
+                                            font-weight: 800;
+                                            wrap: word-wrap;
+                                            horizontal-stretch: 1;
+                                        }
                                         TextBtn {
                                             label: root.preview-wide ? "Narrow" : "Wide";
                                             text-color: #897e72;

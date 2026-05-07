@@ -18,7 +18,11 @@ static IN_MEMORY_DB_COUNTER: AtomicU64 = AtomicU64::new(1);
 // in sync across queries.
 
 /// Columns inserted when saving an article (excludes auto-generated id, uploaded fields).
-const INSERT_COLS: &str = "url, title, subtitle, author, date, section, clean_text, word_count, difficulty, fetched_at, paywalled, audio_url, audio_download_url, audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id";
+const INSERT_COLS: &str = concat!(
+    "url, title, subtitle, author, date, section, clean_text, word_count, difficulty, ",
+    "fetched_at, paywalled, audio_url, audio_download_url, audio_duration_seconds, ",
+    "audio_size_bytes, audio_kicker, sophora_id",
+);
 
 /// ON CONFLICT UPDATE clause shared by save_article and save_articles_batch.
 /// Note: `audio_local_path` is intentionally not overwritten by upserts so the
@@ -43,16 +47,38 @@ const UPSERT_SET: &str = r#"
 "#;
 
 /// All columns for a full StoredArticle row, unqualified for single-table queries.
-const SELECT_ALL_COLS: &str = "id, url, title, subtitle, author, date, section, clean_text, word_count, difficulty, fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, paywalled, audio_url, audio_download_url, audio_local_path, audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id, transcript_text, transcript_source";
+const SELECT_ALL_COLS: &str = concat!(
+    "id, url, title, subtitle, author, date, section, clean_text, word_count, ",
+    "difficulty, fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, ",
+    "paywalled, audio_url, audio_download_url, audio_local_path, ",
+    "audio_duration_seconds, audio_size_bytes, audio_kicker, sophora_id, ",
+    "transcript_text, transcript_source",
+);
 
 /// All columns for a full StoredArticle row, table-qualified for JOIN queries.
-const SELECT_ALL_COLS_A: &str = "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.clean_text, a.word_count, a.difficulty, a.fetched_at, a.uploaded_to_lingq, a.lingq_lesson_id, a.lingq_lesson_url, a.paywalled, a.audio_url, a.audio_download_url, a.audio_local_path, a.audio_duration_seconds, a.audio_size_bytes, a.audio_kicker, a.sophora_id, a.transcript_text, a.transcript_source";
+const SELECT_ALL_COLS_A: &str = concat!(
+    "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.clean_text, ",
+    "a.word_count, a.difficulty, a.fetched_at, a.uploaded_to_lingq, ",
+    "a.lingq_lesson_id, a.lingq_lesson_url, a.paywalled, a.audio_url, ",
+    "a.audio_download_url, a.audio_local_path, a.audio_duration_seconds, ",
+    "a.audio_size_bytes, a.audio_kicker, a.sophora_id, a.transcript_text, ",
+    "a.transcript_source",
+);
 
 /// Metadata-only columns for StoredArticleMeta (no clean_text).
-const SELECT_META_COLS: &str = "id, url, title, subtitle, author, date, section, word_count, difficulty, fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, paywalled, audio_url, audio_download_url, audio_local_path, audio_duration_seconds";
+const SELECT_META_COLS: &str = concat!(
+    "id, url, title, subtitle, author, date, section, word_count, difficulty, ",
+    "fetched_at, uploaded_to_lingq, lingq_lesson_id, lingq_lesson_url, paywalled, ",
+    "audio_url, audio_download_url, audio_local_path, audio_duration_seconds",
+);
 
 /// Metadata-only columns, table-qualified for JOIN queries.
-const SELECT_META_COLS_A: &str = "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.word_count, a.difficulty, a.fetched_at, a.uploaded_to_lingq, a.lingq_lesson_id, a.lingq_lesson_url, a.paywalled, a.audio_url, a.audio_download_url, a.audio_local_path, a.audio_duration_seconds";
+const SELECT_META_COLS_A: &str = concat!(
+    "a.id, a.url, a.title, a.subtitle, a.author, a.date, a.section, a.word_count, ",
+    "a.difficulty, a.fetched_at, a.uploaded_to_lingq, a.lingq_lesson_id, ",
+    "a.lingq_lesson_url, a.paywalled, a.audio_url, a.audio_download_url, ",
+    "a.audio_local_path, a.audio_duration_seconds",
+);
 
 #[derive(Debug, Clone)]
 pub struct StoredArticle {
@@ -533,7 +559,12 @@ impl Database {
     pub fn mark_uploaded(&self, id: i64, lesson_id: i64, lesson_url: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
-            "UPDATE articles SET uploaded_to_lingq = 1, lingq_lesson_id = ?1, lingq_lesson_url = ?2, lingq_upload_status = 'succeeded', lingq_upload_error = '', lingq_upload_attempted_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            concat!(
+                "UPDATE articles SET uploaded_to_lingq = 1, lingq_lesson_id = ?1, ",
+                "lingq_lesson_url = ?2, lingq_upload_status = 'succeeded', ",
+                "lingq_upload_error = '', ",
+                "lingq_upload_attempted_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            ),
             params![lesson_id, lesson_url, id],
         )?;
         conn.execute(
@@ -671,24 +702,34 @@ impl Database {
             .query_map([], map_article_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        let entries: Vec<String> = articles.iter().map(|a| {
-            format!(
-                r#"  {{"id":{},"url":{},"title":{},"subtitle":{},"author":{},"date":{},"section":{},"word_count":{},"difficulty":{},"fetched_at":{},"uploaded_to_lingq":{},"lingq_lesson_id":{},"lingq_lesson_url":{}}}"#,
-                a.id,
-                json_escape(&a.url),
-                json_escape(&a.title),
-                json_escape(&a.subtitle),
-                json_escape(&a.author),
-                json_escape(&a.date),
-                json_escape(&a.section),
-                a.word_count,
-                a.difficulty,
-                json_escape(&a.fetched_at),
-                a.uploaded_to_lingq,
-                a.lingq_lesson_id.map(|id| id.to_string()).unwrap_or_else(|| "null".to_owned()),
-                json_escape(&a.lingq_lesson_url),
-            )
-        }).collect();
+        let entries: Vec<String> = articles
+            .iter()
+            .map(|a| {
+                format!(
+                    concat!(
+                        r#"  {{"id":{},"url":{},"title":{},"subtitle":{},"author":{},"#,
+                        r#""date":{},"section":{},"word_count":{},"difficulty":{},"#,
+                        r#""fetched_at":{},"uploaded_to_lingq":{},"lingq_lesson_id":{},"#,
+                        r#""lingq_lesson_url":{}}}"#,
+                    ),
+                    a.id,
+                    json_escape(&a.url),
+                    json_escape(&a.title),
+                    json_escape(&a.subtitle),
+                    json_escape(&a.author),
+                    json_escape(&a.date),
+                    json_escape(&a.section),
+                    a.word_count,
+                    a.difficulty,
+                    json_escape(&a.fetched_at),
+                    a.uploaded_to_lingq,
+                    a.lingq_lesson_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "null".to_owned()),
+                    json_escape(&a.lingq_lesson_url),
+                )
+            })
+            .collect();
 
         Ok(format!("[\n{}\n]", entries.join(",\n")))
     }
