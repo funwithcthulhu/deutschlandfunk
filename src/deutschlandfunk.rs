@@ -280,116 +280,7 @@ impl DeutschlandfunkClient {
     pub async fn fetch_article(&self, url: &str) -> Result<Article> {
         info!("Fetching article: {url}");
         let html = self.fetch_html(url).await?;
-        let document = Html::parse_document(&html);
-
-        // Parse the embedded js-client-queries scripts once; the result feeds both
-        // metadata fallbacks and audio extraction.
-        let scripts = parse_client_queries(&document);
-
-        let title = first_text(&document, selectors::TITLE)
-            .map(|v| {
-                v.replace(" | deutschlandfunk.de", "")
-                    .replace(" | Deutschlandfunk", "")
-                    .trim()
-                    .to_owned()
-            })
-            .filter(|v| !v.is_empty())
-            .or_else(|| first_string_from_scripts(&scripts, &["title", "seoTitle"]))
-            .unwrap_or_else(|| "Untitled".to_owned());
-
-        let subtitle = first_attr(&document, selectors::SUBTITLE, "content")
-            .or_else(|| {
-                first_string_from_scripts(
-                    &scripts,
-                    &["teaserHeadline", "teasertext", "seoTeaserText"],
-                )
-            })
-            .unwrap_or_default();
-
-        let author = first_attr(&document, &["meta[property=\"article:author\"]"], "content")
-            .or_else(|| first_text(&document, selectors::AUTHOR_FALLBACK))
-            .or_else(|| first_string_from_scripts(&scripts, &["author", "authorText"]))
-            .unwrap_or_default();
-
-        let date = extract_date(&document, &html, url, &scripts)
-            .map(|d| normalize_date(&d))
-            .unwrap_or_default();
-
-        let section = first_attr(&document, selectors::SECTION, "content")
-            .or_else(|| infer_section_from_scripts(&scripts))
-            .unwrap_or_else(|| infer_section_from_url(url));
-
-        let audio = extract_audio(&scripts);
-        let (kicker, leader, _news_source) = extract_article_meta_fields(&scripts);
-
-        // 1. Primary body source: Article.articleCopyText JSON array.
-        // 2. Fallback: visible <article class="b-article"> HTML.
-        // 3. Last resort: lede + audio show notes.
-        let mut body_text = extract_article_copy_text(&scripts)
-            .or_else(|| extract_body(&document, &audio).ok())
-            .unwrap_or_default();
-
-        // If we still have very little body, prepend the leader + show notes
-        // so we never produce a totally empty record for short news pieces.
-        if body_text.split_whitespace().count() < 30 {
-            let mut prefix = Vec::new();
-            if let Some(l) = leader.as_deref().filter(|s| !s.is_empty()) {
-                prefix.push(l.to_owned());
-            }
-            if let Some(notes) = audio.show_notes.as_deref().filter(|s| !s.is_empty()) {
-                prefix.push(notes.to_owned());
-            }
-            if !prefix.is_empty() {
-                let combined = if body_text.is_empty() {
-                    prefix.join("\n\n")
-                } else {
-                    format!("{}\n\n{}", prefix.join("\n\n"), body_text)
-                };
-                body_text = combined;
-            }
-        }
-
-        let word_count = body_text.split_whitespace().count();
-
-        // Short news flashes (1-2 sentences) are valid
-        // articles. Only reject totally empty extractions.
-        let has_audio = !audio.is_empty();
-        if word_count < 8 && !has_audio {
-            bail!("article extraction produced no body text for {url}");
-        }
-
-        // Mark very short pieces as "truncated" so the GUI flags them.
-        let paywalled = word_count < 50 && has_audio;
-        // Forward the kicker into the audio struct if the article had one
-        // and audio didn't already set its own kicker.
-        let mut audio = audio;
-        if audio
-            .kicker
-            .as_deref()
-            .map(|s| s.is_empty())
-            .unwrap_or(true)
-        {
-            audio.kicker = kicker;
-        }
-
-        let clean_text = build_clean_text(&title, &subtitle, &author, &date, &body_text, &audio);
-        let difficulty = estimate_difficulty(&body_text);
-
-        Ok(Article {
-            url: url.to_owned(),
-            title,
-            subtitle,
-            author,
-            date,
-            section,
-            body_text,
-            clean_text,
-            word_count,
-            difficulty,
-            paywalled,
-            fetched_at: iso_timestamp_now(),
-            audio,
-        })
+        extract_article_from_html(url, &html)
     }
 
     pub async fn fetch_article_metadata(&self, url: &str) -> Result<ArticleMetadata> {
@@ -659,6 +550,116 @@ impl DeutschlandfunkClient {
         }
         String::new()
     }
+}
+
+fn extract_article_from_html(url: &str, html: &str) -> Result<Article> {
+    let document = Html::parse_document(html);
+
+    // Parse the embedded js-client-queries scripts once; the result feeds both
+    // metadata fallbacks and audio extraction.
+    let scripts = parse_client_queries(&document);
+
+    let title = first_text(&document, selectors::TITLE)
+        .map(|v| {
+            v.replace(" | deutschlandfunk.de", "")
+                .replace(" | Deutschlandfunk", "")
+                .trim()
+                .to_owned()
+        })
+        .filter(|v| !v.is_empty())
+        .or_else(|| first_string_from_scripts(&scripts, &["title", "seoTitle"]))
+        .unwrap_or_else(|| "Untitled".to_owned());
+
+    let subtitle = first_attr(&document, selectors::SUBTITLE, "content")
+        .or_else(|| {
+            first_string_from_scripts(&scripts, &["teaserHeadline", "teasertext", "seoTeaserText"])
+        })
+        .unwrap_or_default();
+
+    let author = first_attr(&document, &["meta[property=\"article:author\"]"], "content")
+        .or_else(|| first_text(&document, selectors::AUTHOR_FALLBACK))
+        .or_else(|| first_string_from_scripts(&scripts, &["author", "authorText"]))
+        .unwrap_or_default();
+
+    let date = extract_date(&document, html, url, &scripts)
+        .map(|d| normalize_date(&d))
+        .unwrap_or_default();
+
+    let section = first_attr(&document, selectors::SECTION, "content")
+        .or_else(|| infer_section_from_scripts(&scripts))
+        .unwrap_or_else(|| infer_section_from_url(url));
+
+    let audio = extract_audio(&scripts);
+    let (kicker, leader, _news_source) = extract_article_meta_fields(&scripts);
+
+    // 1. Primary body source: Article.articleCopyText JSON array.
+    // 2. Fallback: visible <article class="b-article"> HTML.
+    // 3. Last resort: lede + audio show notes.
+    let mut body_text = extract_article_copy_text(&scripts)
+        .or_else(|| extract_body(&document, &audio).ok())
+        .unwrap_or_default();
+
+    // If we still have very little body, prepend the leader + show notes
+    // so we never produce a totally empty record for short news pieces.
+    if body_text.split_whitespace().count() < 30 {
+        let mut prefix = Vec::new();
+        if let Some(l) = leader.as_deref().filter(|s| !s.is_empty()) {
+            prefix.push(l.to_owned());
+        }
+        if let Some(notes) = audio.show_notes.as_deref().filter(|s| !s.is_empty()) {
+            prefix.push(notes.to_owned());
+        }
+        if !prefix.is_empty() {
+            let combined = if body_text.is_empty() {
+                prefix.join("\n\n")
+            } else {
+                format!("{}\n\n{}", prefix.join("\n\n"), body_text)
+            };
+            body_text = combined;
+        }
+    }
+
+    let word_count = body_text.split_whitespace().count();
+
+    // Short news flashes (1-2 sentences) are valid
+    // articles. Only reject totally empty extractions.
+    let has_audio = !audio.is_empty();
+    if word_count < 8 && !has_audio {
+        bail!("article extraction produced no body text for {url}");
+    }
+
+    // Mark very short pieces as "truncated" so the GUI flags them.
+    let paywalled = word_count < 50 && has_audio;
+    // Forward the kicker into the audio struct if the article had one
+    // and audio didn't already set its own kicker.
+    let mut audio = audio;
+    if audio
+        .kicker
+        .as_deref()
+        .map(|s| s.is_empty())
+        .unwrap_or(true)
+    {
+        audio.kicker = kicker;
+    }
+
+    let clean_text = build_clean_text(&title, &subtitle, &author, &date, &body_text, &audio);
+    let difficulty = estimate_difficulty(&body_text);
+
+    Ok(Article {
+        url: url.to_owned(),
+        title,
+        subtitle,
+        author,
+        date,
+        section,
+        body_text,
+        clean_text,
+        word_count,
+        difficulty,
+        paywalled,
+        fetched_at: iso_timestamp_now(),
+        audio,
+    })
 }
 
 fn extract_date(document: &Html, html: &str, url: &str, scripts: &[Value]) -> Option<String> {
@@ -1171,6 +1172,103 @@ mod tests {
             info.best_download_url(),
             Some("https://download.deutschlandfunk.de/x.mp3")
         );
+    }
+
+    #[test]
+    fn realistic_fixture_keeps_article_audio_and_lingq_payload_fields_distinct() {
+        use crate::{
+            database::StoredArticle,
+            services::upload::{UploadArticleOptions, build_upload_request},
+        };
+
+        const URL: &str =
+            "https://www.deutschlandfunk.de/kommunen-testen-neue-waermeplaene-100.html";
+        let html = include_str!("../tests/fixtures/realistic_article_audio_page.html");
+
+        let article = extract_article_from_html(URL, html).unwrap();
+
+        assert_eq!(article.title, "Kommunen testen neue Waermeplaene");
+        assert_eq!(
+            article.subtitle,
+            "Wie Staedte ihre Energieversorgung planen"
+        );
+        assert_eq!(article.author, "Anna Beispiel");
+        assert_eq!(article.date, "2026-05-01");
+        assert_eq!(article.section, "Hintergrund");
+        assert!(article.body_text.contains(
+            "Die erste Stadt beschreibt im Rat, wie Nahwaerme und Sanierung zusammenspielen."
+        ));
+        assert!(article.body_text.contains("## Planung mit Daten"));
+        assert!(
+            article
+                .body_text
+                .contains("- Kommunen sammeln Verbrauchswerte offline.")
+        );
+        assert!(!article.body_text.contains("Audio-Show-Notes"));
+        assert_eq!(
+            article.audio.audio_url.as_deref(),
+            Some("https://ondemand-mp3.dradio.de/file/dradio/2026/05/01/testaudio.mp3")
+        );
+        assert_eq!(
+            article.audio.download_url.as_deref(),
+            Some("https://download.deutschlandfunk.de/file/dradio/2026/05/01/testaudio.mp3")
+        );
+        assert_eq!(article.audio.duration_seconds, Some(645));
+        assert_eq!(article.audio.file_size_bytes, Some(9_876_543));
+        assert_eq!(
+            article.audio.sophora_id.as_deref(),
+            Some("kommunen-testen-neue-waermeplaene-100")
+        );
+
+        let stored = StoredArticle {
+            id: 1,
+            url: article.url.clone(),
+            title: article.title.clone(),
+            subtitle: article.subtitle.clone(),
+            author: article.author.clone(),
+            date: article.date.clone(),
+            section: article.section.clone(),
+            clean_text: article.clean_text.clone(),
+            word_count: article.word_count as i64,
+            difficulty: article.difficulty,
+            fetched_at: article.fetched_at.clone(),
+            uploaded_to_lingq: false,
+            lingq_lesson_id: None,
+            lingq_lesson_url: String::new(),
+            paywalled: article.paywalled,
+            audio_url: article.audio.audio_url.clone().unwrap_or_default(),
+            audio_download_url: article.audio.download_url.clone().unwrap_or_default(),
+            audio_local_path: String::new(),
+            audio_duration_seconds: article.audio.duration_seconds.unwrap_or_default(),
+            audio_size_bytes: article.audio.file_size_bytes.unwrap_or_default(),
+            audio_kicker: article.audio.kicker.clone().unwrap_or_default(),
+            sophora_id: article.audio.sophora_id.clone().unwrap_or_default(),
+            transcript_text: String::new(),
+            transcript_source: String::new(),
+        };
+        let options = UploadArticleOptions {
+            api_key: "test-token".to_owned(),
+            language_code: "de".to_owned(),
+            collection_id: Some(42),
+            attach_audio: false,
+        };
+
+        let request = build_upload_request(&stored, &options, None);
+
+        assert_eq!(request.title, "Kommunen testen neue Waermeplaene");
+        assert_eq!(request.text, article.clean_text);
+        assert!(
+            request
+                .text
+                .starts_with("Kommunen testen neue Waermeplaene")
+        );
+        assert!(request.text.contains(
+            "Die erste Stadt beschreibt im Rat, wie Nahwaerme und Sanierung zusammenspielen."
+        ));
+        assert!(!request.text.contains("Audio-Show-Notes"));
+        assert_eq!(request.original_url.as_deref(), Some(URL));
+        assert_eq!(request.collection_id, Some(42));
+        assert!(request.audio_path.is_none());
     }
 
     #[test]

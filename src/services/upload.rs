@@ -48,15 +48,7 @@ pub async fn upload_article_to_lingq(
         None
     };
 
-    let request = UploadRequest {
-        api_key: options.api_key.clone(),
-        language_code: options.language_code.clone(),
-        collection_id: options.collection_id,
-        title: article.title.clone(),
-        text: article.upload_text().to_owned(),
-        original_url: Some(article.url.clone()),
-        audio_path,
-    };
+    let request = build_upload_request(&article, options, audio_path);
 
     let updated_existing = article.lingq_lesson_id.is_some();
     db.set_upload_status(typed_article_id, "uploading", None)?;
@@ -89,6 +81,22 @@ pub async fn upload_article_to_lingq(
         lesson_url: response.lesson_url,
         updated_existing,
     })
+}
+
+pub(crate) fn build_upload_request(
+    article: &crate::database::StoredArticle,
+    options: &UploadArticleOptions,
+    audio_path: Option<PathBuf>,
+) -> UploadRequest {
+    UploadRequest {
+        api_key: options.api_key.clone(),
+        language_code: options.language_code.clone(),
+        collection_id: options.collection_id,
+        title: article.title.clone(),
+        text: article.upload_text().to_owned(),
+        original_url: Some(article.url.clone()),
+        audio_path,
+    }
 }
 
 fn validate_audio_path(raw_path: &str) -> Result<PathBuf> {
