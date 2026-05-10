@@ -1272,6 +1272,98 @@ mod tests {
     }
 
     #[test]
+    fn audio_transcript_fixture_extracts_copy_and_prefers_saved_transcript_for_lingq() {
+        use crate::{
+            database::StoredArticle,
+            services::upload::{UploadArticleOptions, build_upload_request},
+        };
+
+        const URL: &str = "https://www.deutschlandfunk.de/interview-zur-forschungspolitik-100.html";
+        let html = include_str!("../tests/fixtures/audio_transcript_article_page.html");
+
+        let article = extract_article_from_html(URL, html).unwrap();
+
+        assert_eq!(article.title, "Interview zur Forschungspolitik");
+        assert_eq!(
+            article.subtitle,
+            "Warum Labore bessere Planbarkeit brauchen"
+        );
+        assert_eq!(article.author, "Mara Beispiel");
+        assert_eq!(article.date, "2026-05-02");
+        assert_eq!(article.section, "Forschung aktuell");
+        assert!(article.body_text.contains(
+            "Im Interview beschreibt die Wissenschaftlerin, warum kurzfristige Foerderlinien"
+        ));
+        assert!(article.body_text.contains("## Mehr Verlaesslichkeit"));
+        assert!(
+            article
+                .body_text
+                .contains("- Foerderprogramme sollen laenger laufen.")
+        );
+        assert!(!article.body_text.contains("sichtbarer Teaser"));
+        assert!(
+            !article
+                .body_text
+                .contains("Shownotes bleiben Audiometadaten")
+        );
+        assert_eq!(article.audio.duration_seconds, Some(734));
+        assert_eq!(
+            article.audio.download_url.as_deref(),
+            Some("https://download.deutschlandfunk.de/file/dradio/2026/05/02/interview.mp3")
+        );
+        assert_eq!(article.audio.kicker.as_deref(), Some("Interview"));
+        assert_eq!(article.audio.author_text.as_deref(), Some("Mara Beispiel"));
+        assert_eq!(
+            article.audio.show_notes.as_deref(),
+            Some("Shownotes bleiben Audiometadaten und werden nicht zum Artikeltext.")
+        );
+        assert_eq!(article.audio.dira_id.as_deref(), Some("dlf-456"));
+
+        let transcript =
+            "Dies ist ein lokal gespeichertes Transkript.\nEs ersetzt den Seitenauszug fuer LingQ.";
+        let stored = StoredArticle {
+            id: 2,
+            url: article.url.clone(),
+            title: article.title.clone(),
+            subtitle: article.subtitle.clone(),
+            author: article.author.clone(),
+            date: article.date.clone(),
+            section: article.section.clone(),
+            clean_text: article.clean_text.clone(),
+            word_count: article.word_count as i64,
+            difficulty: article.difficulty,
+            fetched_at: article.fetched_at.clone(),
+            uploaded_to_lingq: false,
+            lingq_lesson_id: None,
+            lingq_lesson_url: String::new(),
+            paywalled: article.paywalled,
+            audio_url: article.audio.audio_url.clone().unwrap_or_default(),
+            audio_download_url: article.audio.download_url.clone().unwrap_or_default(),
+            audio_local_path: String::new(),
+            audio_duration_seconds: article.audio.duration_seconds.unwrap_or_default(),
+            audio_size_bytes: article.audio.file_size_bytes.unwrap_or_default(),
+            audio_kicker: article.audio.kicker.clone().unwrap_or_default(),
+            sophora_id: article.audio.sophora_id.clone().unwrap_or_default(),
+            transcript_text: transcript.to_owned(),
+            transcript_source: "fixture:local-transcript".to_owned(),
+        };
+        let options = UploadArticleOptions {
+            api_key: "test-token".to_owned(),
+            language_code: "de".to_owned(),
+            collection_id: Some(7),
+            attach_audio: false,
+        };
+
+        let request = build_upload_request(&stored, &options, None);
+
+        assert_eq!(request.title, "Interview zur Forschungspolitik");
+        assert_eq!(request.text, transcript);
+        assert!(!request.text.contains("Im Interview beschreibt"));
+        assert_eq!(request.original_url.as_deref(), Some(URL));
+        assert_eq!(request.collection_id, Some(7));
+    }
+
+    #[test]
     fn collect_articles_respects_zero_limit() {
         let client = DeutschlandfunkClient::new().unwrap();
         let document = Html::parse_document(
