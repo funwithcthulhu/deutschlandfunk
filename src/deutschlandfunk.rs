@@ -1364,6 +1364,85 @@ mod tests {
     }
 
     #[test]
+    fn html_fallback_fixture_keeps_related_boxes_out_and_dedupes_subtitle_for_lingq() {
+        use crate::services::upload::{UploadArticleOptions, build_upload_request};
+
+        const URL: &str =
+            "https://www.deutschlandfunk.de/politik/2026/05/03/gesetz-beratung-100.html";
+        const SUBTITLE: &str = "Der Bundestag debattiert einen Entwurf in mehreren Schritten.";
+        let html = include_str!("../tests/fixtures/html_fallback_related_links_page.html");
+
+        let article = extract_article_from_html(URL, html).unwrap();
+
+        assert_eq!(article.title, "Wie ein Gesetz beraten wird");
+        assert_eq!(article.subtitle, SUBTITLE);
+        assert!(article.author.is_empty());
+        assert_eq!(article.date, "2026-05-03");
+        assert_eq!(article.section, "politik");
+        assert!(article.body_text.contains(SUBTITLE));
+        assert!(
+            article
+                .body_text
+                .contains("warum der Hintergrund fuer die Entscheidung wichtig bleibt.")
+        );
+        assert!(
+            article
+                .body_text
+                .contains("Danach pruefen die Ausschuesse einzelne Formulierungen")
+        );
+        assert!(!article.body_text.contains("verwandte Artikel"));
+        assert!(article.audio.is_empty());
+        assert_eq!(article.clean_text.matches(SUBTITLE).count(), 1);
+
+        let stored = stored_article_from(&article, "");
+        let options = UploadArticleOptions {
+            api_key: "test-token".to_owned(),
+            language_code: "de".to_owned(),
+            collection_id: Some(9),
+            attach_audio: false,
+        };
+        let request = build_upload_request(&stored, &options, None);
+
+        assert_eq!(request.title, "Wie ein Gesetz beraten wird");
+        assert_eq!(request.text, article.clean_text);
+        assert_eq!(request.text.matches(SUBTITLE).count(), 1);
+        assert!(!request.text.contains("verwandte Artikel"));
+        assert_eq!(request.original_url.as_deref(), Some(URL));
+    }
+
+    fn stored_article_from(
+        article: &Article,
+        transcript_text: &str,
+    ) -> crate::database::StoredArticle {
+        crate::database::StoredArticle {
+            id: 99,
+            url: article.url.clone(),
+            title: article.title.clone(),
+            subtitle: article.subtitle.clone(),
+            author: article.author.clone(),
+            date: article.date.clone(),
+            section: article.section.clone(),
+            clean_text: article.clean_text.clone(),
+            word_count: article.word_count as i64,
+            difficulty: article.difficulty,
+            fetched_at: article.fetched_at.clone(),
+            uploaded_to_lingq: false,
+            lingq_lesson_id: None,
+            lingq_lesson_url: String::new(),
+            paywalled: article.paywalled,
+            audio_url: article.audio.audio_url.clone().unwrap_or_default(),
+            audio_download_url: article.audio.download_url.clone().unwrap_or_default(),
+            audio_local_path: String::new(),
+            audio_duration_seconds: article.audio.duration_seconds.unwrap_or_default(),
+            audio_size_bytes: article.audio.file_size_bytes.unwrap_or_default(),
+            audio_kicker: article.audio.kicker.clone().unwrap_or_default(),
+            sophora_id: article.audio.sophora_id.clone().unwrap_or_default(),
+            transcript_text: transcript_text.to_owned(),
+            transcript_source: String::new(),
+        }
+    }
+
+    #[test]
     fn collect_articles_respects_zero_limit() {
         let client = DeutschlandfunkClient::new().unwrap();
         let document = Html::parse_document(
