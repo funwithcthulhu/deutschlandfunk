@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Podcasttext ohne Audiodaten | Deutschlandfunk</title>
+    <script
+      class="js-client-queries"
+      data-json='{
+        "value": {
+          "__typename": "AudioArticle",
+          "title": "Podcasttext ohne Audiodaten",
+          "teaserHeadline": "Ein Transkripttext bleibt nutzbar, auch wenn die Audio-Metadaten fehlen",
+          "articleKicker": "Medien",
+          "audioCopyText": [
+            {
+              "__typename": "ParagraphText",
+              "content": "Die Redaktion stellt den Gespraechstext bereit, obwohl der separate Audiodatensatz in dieser Variante fehlt."
+            },
+            {
+              "__typename": "ParagraphHeading",
+              "content": "Keine Audiodatei im Datenblock"
+            },
+            {
+              "__typename": "ParagraphText",
+              "content": "Der Parser soll den Text weiter als Artikelinhalt behandeln und nicht versuchen, fehlende MP3-Felder aus sichtbaren Teasern zu erfinden."
+            },
+            {
+              "__typename": "ParagraphList",
+              "items": [
+                "Der Seitentext bleibt offline verfuegbar.",
+                "Audio-URLs bleiben leer, wenn sie nicht geliefert werden."
+              ]
+            }
+          ]
+        }
+      }'
+    ></script>
+  </head>
+  <body>
+    <article class="b-article">
+      <h1>Podcasttext ohne Audiodaten</h1>
+      <p>Dieser sichtbare Teaser ist kuerzer als der eigentliche Text.</p>
+    </article>
+  </body>
+</html>

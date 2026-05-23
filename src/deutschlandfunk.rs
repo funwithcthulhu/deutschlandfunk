@@ -1364,6 +1364,49 @@ mod tests {
     }
 
     #[test]
+    fn audio_article_missing_audio_metadata_uses_copy_text_without_audio_fields() {
+        const URL: &str =
+            "https://www.deutschlandfunk.de/medien/2026/05/05/podcasttext-ohne-audio-100.html";
+        let html = include_str!("../tests/fixtures/audio_article_missing_audio_metadata_page.html");
+
+        let article = extract_article_from_html(URL, html).unwrap();
+
+        assert_eq!(article.title, "Podcasttext ohne Audiodaten");
+        assert_eq!(
+            article.subtitle,
+            "Ein Transkripttext bleibt nutzbar, auch wenn die Audio-Metadaten fehlen"
+        );
+        assert!(article.author.is_empty());
+        assert_eq!(article.date, "2026-05-05");
+        assert_eq!(article.section, "medien");
+        assert!(article.body_text.contains(
+            "Die Redaktion stellt den Gespraechstext bereit, obwohl der separate Audiodatensatz"
+        ));
+        assert!(
+            article
+                .body_text
+                .contains("## Keine Audiodatei im Datenblock")
+        );
+        assert!(
+            article
+                .body_text
+                .contains("- Audio-URLs bleiben leer, wenn sie nicht geliefert werden.")
+        );
+        assert!(!article.body_text.contains("sichtbare Teaser"));
+        assert!(article.audio.is_empty());
+        assert_eq!(article.audio.kicker.as_deref(), Some("Medien"));
+        assert_eq!(article.audio.duration_seconds, None);
+        assert_eq!(article.audio.file_size_bytes, None);
+        assert!(!article.paywalled);
+        assert!(article.clean_text.contains("Podcasttext ohne Audiodaten"));
+        assert!(
+            article
+                .clean_text
+                .contains("Keine Audiodatei im Datenblock")
+        );
+    }
+
+    #[test]
     fn html_fallback_fixture_keeps_related_boxes_out_and_dedupes_subtitle_for_lingq() {
         use crate::services::upload::{UploadArticleOptions, build_upload_request};
 
