@@ -1175,6 +1175,59 @@ mod tests {
     }
 
     #[test]
+    fn audio_without_transcript_fixture_uses_audio_notes_as_body() {
+        const URL: &str =
+            "https://www.deutschlandfunk.de/campus/2026/05/07/audio-ohne-transkript-100.html";
+        let html = include_str!("../tests/fixtures/audio_without_transcript_page.html");
+
+        let article = extract_article_from_html(URL, html).unwrap();
+
+        assert_eq!(article.title, "Audio ohne Transkript");
+        assert_eq!(
+            article.subtitle,
+            "Eine Audiosendung ohne vollstaendigen Artikeltext"
+        );
+        assert_eq!(article.author, "Jana Ton");
+        assert_eq!(article.date, "2026-05-07");
+        assert_eq!(article.section, "Campus und Karriere");
+        assert!(
+            article
+                .body_text
+                .starts_with("Die Sendung fasst zusammen, warum Hochschulen Beratung")
+        );
+        assert!(
+            article
+                .body_text
+                .contains("Ein kurzes Gespraech aus der Sendung.")
+        );
+        assert!(!article.body_text.contains("Kurzer Player-Teaser"));
+        assert_eq!(
+            article.audio.audio_url.as_deref(),
+            Some("https://ondemand-mp3.dradio.de/file/dradio/2026/05/07/audio-ohne-transkript.mp3")
+        );
+        assert_eq!(
+            article.audio.best_download_url(),
+            Some(
+                "https://download.deutschlandfunk.de/file/dradio/2026/05/07/audio-ohne-transkript.mp3"
+            )
+        );
+        assert_eq!(article.audio.duration_seconds, Some(512));
+        assert_eq!(article.audio.file_size_bytes, Some(7_654_321));
+        assert_eq!(article.audio.kicker.as_deref(), Some("Campus"));
+        assert_eq!(
+            article.audio.sophora_id.as_deref(),
+            Some("audio-ohne-transkript-100")
+        );
+        assert!(article.paywalled);
+        assert!(article.clean_text.contains("[Campus]"));
+        assert!(
+            article
+                .clean_text
+                .contains("Die Sendung fasst zusammen, warum Hochschulen Beratung")
+        );
+    }
+
+    #[test]
     fn realistic_fixture_keeps_article_audio_and_lingq_payload_fields_distinct() {
         use crate::{
             database::StoredArticle,
