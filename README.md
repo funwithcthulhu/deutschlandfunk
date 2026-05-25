@@ -111,4 +111,4 @@ Downloaded MP3s default to:
 
 ## License
 
-This repo is public, but the code is not open source. See [LICENSE](LICENSE).
+Licensed under the MIT License. See [LICENSE](LICENSE).
