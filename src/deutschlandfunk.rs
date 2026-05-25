@@ -1175,6 +1175,125 @@ mod tests {
     }
 
     #[test]
+    fn canonical_listing_duplicate_upsert_keeps_lingq_and_audio_state() {
+        use crate::database::Database;
+        use rusqlite::params;
+
+        const CANONICAL_URL: &str = "https://www.deutschlandfunk.de/politik/2026/05/08/ein-langer-beitrag-zu-url-varianten-100.html";
+        const LOCAL_AUDIO_PATH: &str = "C:\\audio\\url-varianten.mp3";
+        const LESSON_URL: &str = "https://www.lingq.com/de/learn/de/web/lesson/456";
+        let html = include_str!("../tests/fixtures/canonical_duplicate_listing.html");
+        let document = Html::parse_document(html);
+        let client = DeutschlandfunkClient::new().unwrap();
+        let mut seen = HashSet::new();
+        let mut articles = Vec::new();
+        let mut report = DiscoveryReport::default();
+
+        client.collect_articles_from_document(ArticleCollection {
+            document: &document,
+            fallback_section: Some("Politik"),
+            source_url: BASE_URL,
+            source_kind: DiscoverySourceKind::Section,
+            limit: 10,
+            seen: &mut seen,
+            articles: &mut articles,
+            report: &mut report,
+        });
+
+        assert_eq!(articles.len(), 1);
+        assert_eq!(articles[0].url, CANONICAL_URL);
+        assert_eq!(report.deduped_articles, 1);
+
+        let db_path = unique_test_db_path("dlf_canonical_duplicate");
+        let _ = std::fs::remove_file(&db_path);
+        let db = Database::open(&db_path).unwrap();
+        let mut article = Article {
+            url: articles[0].url.clone(),
+            title: articles[0].title.clone(),
+            subtitle: "Lokale Regression fuer kanonische URLs".to_owned(),
+            author: String::new(),
+            date: "2026-05-08".to_owned(),
+            section: articles[0].section.clone(),
+            body_text: "Der Text bleibt beim erneuten Speichern derselben Meldung erhalten."
+                .to_owned(),
+            clean_text:
+                "Ein langer Beitrag zu URL Varianten\n\nDer Text bleibt beim erneuten Speichern derselben Meldung erhalten."
+                    .to_owned(),
+            word_count: 12,
+            difficulty: 3,
+            fetched_at: "2026-05-08T12:00:00Z".to_owned(),
+            paywalled: false,
+            audio: AudioInfo {
+                audio_url: Some("https://ondemand-mp3.dradio.de/url-varianten.mp3".to_owned()),
+                download_url: Some(
+                    "https://download.deutschlandfunk.de/url-varianten.mp3".to_owned(),
+                ),
+                duration_seconds: Some(90),
+                file_size_bytes: Some(123_456),
+                kicker: Some("Politik".to_owned()),
+                sophora_id: Some("ein-langer-beitrag-zu-url-varianten-100".to_owned()),
+                ..Default::default()
+            },
+        };
+
+        let first_id = db.save_article(&article).unwrap();
+        db.set_audio_local_path(first_id, LOCAL_AUDIO_PATH).unwrap();
+        db.mark_uploaded(first_id, 456, LESSON_URL).unwrap();
+
+        article.title = "Ein langer Beitrag zu URL Varianten, aktualisiert".to_owned();
+        article.audio.download_url =
+            Some("https://download.deutschlandfunk.de/url-varianten-neu.mp3".to_owned());
+        article.audio.duration_seconds = Some(95);
+        let second_id = db.save_article(&article).unwrap();
+
+        assert_eq!(second_id, first_id);
+        let urls = db.get_all_article_urls().unwrap();
+        assert_eq!(urls.len(), 1);
+        assert!(urls.contains(CANONICAL_URL));
+
+        let stored = db.get_article(first_id).unwrap().unwrap();
+        assert_eq!(stored.url, CANONICAL_URL);
+        assert_eq!(stored.title, article.title);
+        assert!(stored.uploaded_to_lingq);
+        assert_eq!(stored.lingq_lesson_id, Some(456));
+        assert_eq!(stored.lingq_lesson_url, LESSON_URL);
+        assert_eq!(stored.audio_local_path, LOCAL_AUDIO_PATH);
+        assert_eq!(
+            stored.audio_download_url,
+            "https://download.deutschlandfunk.de/url-varianten-neu.mp3"
+        );
+        assert_eq!(stored.audio_duration_seconds, 95);
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let (status, error): (String, String) = conn
+            .query_row(
+                "SELECT lingq_upload_status, lingq_upload_error FROM articles WHERE id = ?1",
+                params![first_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (asset_download_url, asset_local_path): (String, String) = conn
+            .query_row(
+                "SELECT download_url, local_path FROM audio_assets WHERE article_id = ?1",
+                params![first_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(status, "succeeded");
+        assert!(error.is_empty());
+        assert_eq!(
+            asset_download_url,
+            "https://download.deutschlandfunk.de/url-varianten-neu.mp3"
+        );
+        assert_eq!(asset_local_path, LOCAL_AUDIO_PATH);
+
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
     fn audio_without_transcript_fixture_uses_audio_notes_as_body() {
         const URL: &str =
             "https://www.deutschlandfunk.de/campus/2026/05/07/audio-ohne-transkript-100.html";
@@ -1504,6 +1623,14 @@ mod tests {
         assert_eq!(request.text.matches(SUBTITLE).count(), 1);
         assert!(!request.text.contains("verwandte Artikel"));
         assert_eq!(request.original_url.as_deref(), Some(URL));
+    }
+
+    fn unique_test_db_path(prefix: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}_{}_{}.sqlite", std::process::id(), nonce))
     }
 
     fn stored_article_from(
