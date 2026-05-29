@@ -1294,6 +1294,55 @@ mod tests {
     }
 
     #[test]
+    fn collect_articles_keeps_distinct_urls_with_same_headline() {
+        const FIRST_URL: &str = "https://www.deutschlandfunk.de/politik/2026/05/29/bericht-aus-dem-bundestag-am-morgen-100.html";
+        const SECOND_URL: &str = "https://www.deutschlandfunk.de/politik/2026/05/29/bericht-aus-dem-bundestag-am-abend-100.html";
+        let html = format!(
+            r#"
+            <main>
+              <article>
+                <a href="{FIRST_URL}?utm_source=listing">
+                  <h2 class="headline">Bericht aus dem Bundestag</h2>
+                  <p>Die Morgenausgabe fasst die Debatte vor der Abstimmung zusammen.</p>
+                </a>
+              </article>
+              <article>
+                <a href="{SECOND_URL}?utm_source=listing">
+                  <h2 class="headline">Bericht aus dem Bundestag</h2>
+                  <p>Die Abendausgabe ordnet das Ergebnis und die Reaktionen ein.</p>
+                </a>
+              </article>
+            </main>
+            "#
+        );
+        let document = Html::parse_document(&html);
+        let client = DeutschlandfunkClient::new().unwrap();
+        let mut seen = HashSet::new();
+        let mut articles = Vec::new();
+        let mut report = DiscoveryReport::default();
+
+        client.collect_articles_from_document(ArticleCollection {
+            document: &document,
+            fallback_section: Some("Politik"),
+            source_url: BASE_URL,
+            source_kind: DiscoverySourceKind::Section,
+            limit: 10,
+            seen: &mut seen,
+            articles: &mut articles,
+            report: &mut report,
+        });
+
+        assert_eq!(articles.len(), 2);
+        assert_eq!(report.deduped_articles, 0);
+        let urls: HashSet<&str> = articles
+            .iter()
+            .map(|article| article.url.as_str())
+            .collect();
+        assert!(urls.contains(FIRST_URL));
+        assert!(urls.contains(SECOND_URL));
+    }
+
+    #[test]
     fn audio_without_transcript_fixture_uses_audio_notes_as_body() {
         const URL: &str =
             "https://www.deutschlandfunk.de/campus/2026/05/07/audio-ohne-transkript-100.html";

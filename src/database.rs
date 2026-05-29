@@ -25,8 +25,9 @@ const INSERT_COLS: &str = concat!(
 );
 
 /// ON CONFLICT UPDATE clause shared by save_article and save_articles_batch.
-/// Note: `audio_local_path` is intentionally not overwritten by upserts so the
-/// previously downloaded file path survives a re-fetch.
+/// Note: downloaded audio state is intentionally not overwritten by empty
+/// refetch metadata, so a temporary parser/API miss does not detach existing
+/// audio from the article.
 const UPSERT_SET: &str = r#"
     title = excluded.title,
     subtitle = excluded.subtitle,
@@ -38,12 +39,30 @@ const UPSERT_SET: &str = r#"
     difficulty = excluded.difficulty,
     fetched_at = excluded.fetched_at,
     paywalled = excluded.paywalled,
-    audio_url = excluded.audio_url,
-    audio_download_url = excluded.audio_download_url,
-    audio_duration_seconds = excluded.audio_duration_seconds,
-    audio_size_bytes = excluded.audio_size_bytes,
-    audio_kicker = excluded.audio_kicker,
-    sophora_id = excluded.sophora_id
+    audio_url = CASE
+        WHEN excluded.audio_url <> '' THEN excluded.audio_url
+        ELSE audio_url
+    END,
+    audio_download_url = CASE
+        WHEN excluded.audio_download_url <> '' THEN excluded.audio_download_url
+        ELSE audio_download_url
+    END,
+    audio_duration_seconds = CASE
+        WHEN excluded.audio_duration_seconds <> 0 THEN excluded.audio_duration_seconds
+        ELSE audio_duration_seconds
+    END,
+    audio_size_bytes = CASE
+        WHEN excluded.audio_size_bytes <> 0 THEN excluded.audio_size_bytes
+        ELSE audio_size_bytes
+    END,
+    audio_kicker = CASE
+        WHEN excluded.audio_kicker <> '' THEN excluded.audio_kicker
+        ELSE audio_kicker
+    END,
+    sophora_id = CASE
+        WHEN excluded.sophora_id <> '' THEN excluded.sophora_id
+        ELSE sophora_id
+    END
 "#;
 
 /// All columns for a full StoredArticle row, unqualified for single-table queries.
@@ -1539,6 +1558,62 @@ mod tests {
     }
 
     #[test]
+    fn save_article_upsert_preserves_audio_when_refetch_loses_audio_metadata() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let url =
+            "https://www.deutschlandfunk.de/politik/2026/05/29/audio-metadaten-bleiben-100.html";
+        let mut article = make_article(url, "Audio-Metadaten bleiben");
+        article.audio.audio_url =
+            Some("https://ondemand-mp3.dradio.de/audio-metadaten.mp3".to_owned());
+        article.audio.download_url =
+            Some("https://download.deutschlandfunk.de/audio-metadaten.mp3".to_owned());
+        article.audio.duration_seconds = Some(612);
+        article.audio.file_size_bytes = Some(8_765_432);
+        article.audio.kicker = Some("Hintergrund".to_owned());
+        article.audio.sophora_id = Some("audio-metadaten-bleiben-100".to_owned());
+
+        let id = db.save_article(&article).unwrap();
+        db.set_audio_local_path(id, "C:\\audio\\audio-metadaten.mp3")
+            .unwrap();
+
+        let mut refetched = make_article(url, "Audio-Metadaten bleiben");
+        refetched.clean_text =
+            "Aktualisierter Artikeltext ohne ausgelieferten Audio-Datenblock.".to_owned();
+        let refetched_id = db.save_article(&refetched).unwrap();
+
+        assert_eq!(refetched_id, id);
+        let stored = db.get_article(id).unwrap().unwrap();
+        assert_eq!(
+            stored.clean_text,
+            "Aktualisierter Artikeltext ohne ausgelieferten Audio-Datenblock."
+        );
+        assert_eq!(
+            stored.audio_url,
+            "https://ondemand-mp3.dradio.de/audio-metadaten.mp3"
+        );
+        assert_eq!(
+            stored.audio_download_url,
+            "https://download.deutschlandfunk.de/audio-metadaten.mp3"
+        );
+        assert_eq!(stored.audio_duration_seconds, 612);
+        assert_eq!(stored.audio_size_bytes, 8_765_432);
+        assert_eq!(stored.audio_kicker, "Hintergrund");
+        assert_eq!(stored.sophora_id, "audio-metadaten-bleiben-100");
+        assert_eq!(stored.audio_local_path, "C:\\audio\\audio-metadaten.mp3");
+
+        let audio_asset_count: i64 = db
+            .read()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM audio_assets WHERE article_id = ?1 AND download_url <> '' AND local_path <> ''",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audio_asset_count, 1);
+    }
+
+    #[test]
     fn mark_uploaded_and_query() {
         let db = Database::open(Path::new(":memory:")).unwrap();
         let article = Article {
@@ -1700,6 +1775,33 @@ mod tests {
 
         assert_eq!(status, "failed");
         assert_eq!(event_count, 1);
+    }
+
+    #[test]
+    fn upload_text_ignores_whitespace_only_transcript() {
+        let db = Database::open(Path::new(":memory:")).unwrap();
+        let id = db
+            .save_article(&make_article(
+                "https://www.deutschlandfunk.de/kultur/2026/05/29/leeres-transkript-100.html",
+                "Leeres Transkript",
+            ))
+            .unwrap();
+        db.set_transcript(id, " \r\n\t ", "whisper:empty").unwrap();
+
+        let stored = db.get_article(id).unwrap().unwrap();
+        assert!(!stored.has_transcript());
+        assert_eq!(stored.upload_text(), stored.clean_text);
+
+        let transcript_rows: i64 = db
+            .read()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM transcripts WHERE article_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(transcript_rows, 0);
     }
 
     #[test]
